@@ -57,9 +57,9 @@ function ui_getDashboard(params)        { return _adminCall_(getDashboard, param
 function ui_getMenu(params)             { return _adminCall_(getMenu, params); }
 function ui_getInventory(params)        { return _adminCall_(getInventory, params); }
 function ui_getInventoryDetail(params)  { return _adminCall_(getInventoryDetail, params); }
-function ui_listSellers(params)         { _adminGate_(params); return _readSellersWithStats_(); }
-function ui_listStores(params)          { _adminGate_(params); return _readStores_(); }
-function ui_getCatalog(params)          { _adminGate_(params); return _readCatalog_(); }
+function ui_listSellers(params)         { _adminGate_(params); return _serializeDates_(_readSellersWithStats_()); }
+function ui_listStores(params)          { _adminGate_(params); return _serializeDates_(_readStores_()); }
+function ui_getCatalog(params)          { _adminGate_(params); return _serializeDates_(_readCatalog_()); }
 
 // ---------- Mutations ----------
 function ui_restock(params)          { return _adminCall_(restock, params); }
@@ -84,7 +84,7 @@ function _adminCall_(fn, params) {
   var auth = (params && params._auth) || null;
   var clean = _stripAuth_(params);
   var username = requireAdmin_(auth);
-  return fn(clean, { adminEmail: username });
+  return _serializeDates_(fn(clean, { adminEmail: username }));
 }
 
 function _adminGate_(params) {
@@ -99,6 +99,37 @@ function _stripAuth_(params) {
     if (k !== '_auth') out[k] = params[k];
   });
   return out;
+}
+
+/**
+ * google.script.run cannot serialize Date objects — if any leaf in the
+ * returned tree is a Date, the entire response arrives at the browser
+ * as null (per Apps Script docs). Sheet reads naturally produce Date
+ * objects in date-typed columns, so we walk every admin response and
+ * convert Dates to ISO strings. The admin frontend already does
+ * `new Date(value)` to format them, so ISO strings are a drop-in.
+ *
+ * Invalid Dates (Date object that wraps NaN) become null rather than
+ * the string "Invalid Date", which would otherwise round-trip as
+ * something the client couldn't parse.
+ */
+function _serializeDates_(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (obj instanceof Date) {
+    return isNaN(obj.getTime()) ? null : obj.toISOString();
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(_serializeDates_);
+  }
+  if (typeof obj === 'object') {
+    var out = {};
+    var keys = Object.keys(obj);
+    for (var i = 0; i < keys.length; i++) {
+      out[keys[i]] = _serializeDates_(obj[keys[i]]);
+    }
+    return out;
+  }
+  return obj;
 }
 
 /** Sellers list with sensitive columns (pin_hash, pin_salt) stripped. */
