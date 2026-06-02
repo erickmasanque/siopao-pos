@@ -34,10 +34,23 @@ function doPost(e) {
 }
 
 /**
- * doGet doubles as a health check and a way to hit read-only methods
- * from a browser address bar:  ?method=getMenu  /  ?method=getInventory&params={"store_id":"loc_a"}
+ * doGet serves three things:
+ *   1. ?page=admin     → the admin HtmlService UI (same-origin, Google auth)
+ *   2. ?method=X[&params=...] → read-only API hit from a browser address bar
+ *   3. (no params)     → plain text health check
+ *
+ * The admin UI must live HERE (not on GitHub Pages) because spec D2's
+ * `Session.getActiveUser().getEmail()` only populates for same-origin
+ * callers with a valid Google session — a cross-origin fetch can't
+ * carry the cookie under Apps Script's CORS posture.
  */
 function doGet(e) {
+  if (e && e.parameter && e.parameter.page === 'admin') {
+    return HtmlService.createHtmlOutputFromFile('admin')
+      .setTitle('Siopao POS — Admin')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
   if (!e || !e.parameter || !e.parameter.method) {
     return ContentService
       .createTextOutput('Siopao POS API — POST { method, params } to use.')
