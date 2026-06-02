@@ -91,30 +91,3 @@ function removeDefaultSheetIfEmpty_(ss) {
     ss.deleteSheet(def);
   }
 }
-
-/**
- * DEV-ONLY: seed a test seller with a known PIN so we can exercise the
- * verifyPin / startShift / submitSale flow before the admin UI exists.
- * Edit NAME / STORE_ID / PIN below, then Run → addSeller_dev.
- *
- * Remove this function once the real admin addSeller endpoint is wired.
- */
-function addSeller_dev() {
-  var NAME = 'Test Seller A';
-  var STORE_ID = 'loc_a';
-  var PIN = '1234';
-
-  var salt = generateSalt_();
-  var hash = hashPin_(PIN, salt);
-  var seller_id = 'sel_' + Utilities.getUuid().slice(0, 8);
-
-  appendRow_(TABS.SELLERS, {
-    seller_id: seller_id,
-    name: NAME,
-    store_id: STORE_ID,
-    pin_hash: hash,
-    pin_salt: salt,
-    active: true
-  });
-  Logger.log('Added seller_id=' + seller_id + ' name=' + NAME + ' store=' + STORE_ID + ' pin=' + PIN);
-}

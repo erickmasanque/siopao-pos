@@ -17,6 +17,11 @@
   <!-- Connection indicator pinned top-right, visible across all views. -->
   <div id="conn-dot" class="conn-dot" title="Connection status"></div>
 
+  <!-- Install-to-home-screen chip — shown when the browser fires
+       beforeinstallprompt (Chrome/Edge on Android). Hidden on iOS Safari
+       since iOS uses Share → Add to Home Screen instead. -->
+  <button id="install-btn" class="install-chip" hidden>↓ Install app</button>
+
   <!-- Login: store picker -->
   <section id="view-store" class="view">
     <header class="hero">
@@ -39,6 +44,7 @@
         <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
       </div>
       <p id="pin-error" class="pin-error">&nbsp;</p>
+      <p id="pin-status" class="pin-status" hidden><span class="spinner"></span> Verifying…</p>
       <div class="numpad">
         <button class="num" data-digit="1">1</button>
         <button class="num" data-digit="2">2</button>

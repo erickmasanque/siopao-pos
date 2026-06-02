@@ -63,6 +63,50 @@ button {
 .conn-dot.syncing  { background: #b88500; }
 .conn-dot.offline  { background: #b3261e; }
 
+/* ---------- Install chip ---------- */
+.install-chip {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  background: var(--primary);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 999px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: var(--shadow);
+  border: none;
+}
+.install-chip:active { background: var(--primary-d); }
+
+/* ---------- Spinner ---------- */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.pin-status {
+  margin: 0;
+  height: 20px;
+  color: var(--muted);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+}
+
 /* ---------- Hero / store picker ---------- */
 .hero {
   text-align: center;

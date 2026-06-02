@@ -50,6 +50,19 @@ function uuid() {
   });
 }
 
+/**
+ * Fire-and-forget GET against the API to wake a cold Apps Script
+ * instance. Triggered when the seller taps a store button so the
+ * inevitable loginAndStartShift POST a few seconds later lands on a warm
+ * instance. We ignore the response — getMenu is cached locally anyway.
+ */
+function preWarm() {
+  if (!navigator.onLine) return;
+  try {
+    fetch(API_URL + '?method=getMenu').catch(function () {});
+  } catch (e) {}
+}
+
 // ---------- Storage ----------
 function saveSession() {
   if (state.session) localStorage.setItem(LS_SESSION, JSON.stringify(state.session));
@@ -234,6 +247,7 @@ function renderPinView() {
   state.pinDigits = '';
   updatePinDots();
   $('#pin-error').innerHTML = '&nbsp;';
+  $('#pin-status').hidden = true;
 }
 function updatePinDots() {
   const dots = document.querySelectorAll('#pin-display .pin-dot');
@@ -243,6 +257,8 @@ function updatePinDots() {
 async function onPinComplete() {
   if (state.pinDigits.length !== 4 || state.inflight) return;
   state.inflight = true;
+  $('#pin-status').hidden = false;
+  $('#pin-error').innerHTML = '&nbsp;';
   try {
     if (!navigator.onLine) {
       state.pinDigits = '';
@@ -311,6 +327,7 @@ async function onPinComplete() {
     updatePinDots();
   } finally {
     state.inflight = false;
+    $('#pin-status').hidden = true;
   }
 }
 
@@ -479,7 +496,9 @@ async function confirmSale() {
   }
 
   state.inflight = true;
-  $('#confirm-sale').disabled = true;
+  var confirmBtn = $('#confirm-sale');
+  confirmBtn.disabled = true;
+  confirmBtn.innerHTML = '<span class="spinner"></span> Saving…';
   try {
     // Persist to local queue first — the actual POST happens in the sync
     // loop. This is what makes offline sales work: the seller's screen
@@ -502,6 +521,9 @@ async function confirmSale() {
     toast('Could not queue: ' + err.message, 'err');
   } finally {
     state.inflight = false;
+    // renderSalesView (on success) rebuilds the button via updatePaymentUI,
+    // but on failure we need to restore the label manually.
+    confirmBtn.textContent = 'Confirm Sale';
   }
 }
 
@@ -564,7 +586,9 @@ function formatDuration(startedAt) {
 async function submitClose() {
   if (state.inflight) return;
   state.inflight = true;
-  $('#submit-close').disabled = true;
+  var closeBtn = $('#submit-close');
+  closeBtn.disabled = true;
+  closeBtn.innerHTML = '<span class="spinner"></span> Closing…';
   try {
     await enqueue('closeShift', {
       shift_id: state.session.shift_id,
@@ -588,7 +612,8 @@ async function submitClose() {
     toast('Could not queue close: ' + err.message, 'err');
   } finally {
     state.inflight = false;
-    $('#submit-close').disabled = false;
+    closeBtn.disabled = false;
+    closeBtn.textContent = 'Submit Close';
   }
 }
 
@@ -681,6 +706,10 @@ document.addEventListener('click', (e) => {
   const action = tEl.dataset.action;
   switch (action) {
     case 'pick-store':
+      // Pre-warm the API instance now so PIN completion (a few seconds out)
+      // lands on a warm Apps Script worker instead of paying the 5-10s
+      // cold-start tax on its loginAndStartShift call.
+      preWarm();
       state.pendingStoreId   = tEl.dataset.storeId;
       state.pendingStoreName = tEl.dataset.storeName;
       renderPinView();
@@ -780,6 +809,32 @@ document.addEventListener('click', (e) => {
 
 window.addEventListener('online',  () => { syncNow(); updateConnDot(); });
 window.addEventListener('offline', updateConnDot);
+
+// ---------- Install-to-home-screen ----------
+// Chrome/Edge fires beforeinstallprompt when the PWA is installable. We
+// stash the event so a user gesture (tap on the install chip) can call
+// .prompt() on it later — browsers only honor prompt() during a user
+// gesture, not on page load.
+let installPromptEvent = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPromptEvent = e;
+  const btn = $('#install-btn');
+  if (btn) btn.hidden = false;
+});
+window.addEventListener('appinstalled', () => {
+  installPromptEvent = null;
+  const btn = $('#install-btn');
+  if (btn) btn.hidden = true;
+});
+document.addEventListener('click', (e) => {
+  if (e.target.id !== 'install-btn' || !installPromptEvent) return;
+  installPromptEvent.prompt();
+  installPromptEvent.userChoice.finally(() => {
+    installPromptEvent = null;
+    $('#install-btn').hidden = true;
+  });
+});
 // Tab returning to foreground after sleep — most likely time for the queue
 // to have stalled (timers pause in the background on mobile).
 document.addEventListener('visibilitychange', () => {
