@@ -616,8 +616,15 @@
       // Load stores once, then default to first
       if (!state.stores) {
         try { state.stores = await srv('ui_listStores'); }
-        catch (err) { $('#inv-body').innerHTML = '<div class="empty">Failed to load stores: ' + esc(err.message) + '</div>'; return; }
+        catch (err) {
+          if (state.view !== 'inventory') return;
+          $('#inv-body').innerHTML = '<div class="empty">Failed to load stores: ' + esc(err.message) + '</div>';
+          return;
+        }
       }
+      // User may have tab-switched during the await — bail before touching
+      // DOM elements that no longer exist in #content.
+      if (state.view !== 'inventory') return;
       var sel = $('#inv-store');
       sel.innerHTML = state.stores
         .filter(function (s) { return s.active; })
@@ -850,23 +857,26 @@
       modal.querySelector('[data-modal-cancel]').addEventListener('click', function () { modal.remove(); });
       modal.querySelector('[data-modal-ok]').addEventListener('click', async function () {
         var btn = modal.querySelector('[data-modal-ok]');
+        var name  = modal.querySelector('#m-name').value.trim();
+        var price = Number(modal.querySelector('#m-price').value);
+        var cat   = modal.querySelector('#m-cat').value.trim();
+        if (!name) { toast('Name required', 'err'); return; }
+        // Backend silently coerces NaN -> 0 via roundCentavo_(Number(NaN)); guard here
+        // so a fat-fingered price doesn't quietly set the item to ₱0.
+        if (!isFinite(price) || price < 0) { toast('Price must be a non-negative number', 'err'); return; }
         btn.disabled = true;
         try {
           if (isNew) {
+            var newId = modal.querySelector('#m-item-id').value.trim();
+            if (!newId) { toast('ID required', 'err'); btn.disabled = false; return; }
             await srv('ui_addItem', {
-              item_id:     modal.querySelector('#m-item-id').value.trim(),
-              name:        modal.querySelector('#m-name').value.trim(),
-              retail_price: Number(modal.querySelector('#m-price').value),
-              category:    modal.querySelector('#m-cat').value.trim(),
-              active:      true
+              item_id: newId, name: name, retail_price: price, category: cat, active: true
             });
             toast('Item added', 'ok');
           } else {
             await srv('ui_updateItem', { item_id: item_id, fields: {
-              name:         modal.querySelector('#m-name').value.trim(),
-              retail_price: Number(modal.querySelector('#m-price').value),
-              category:     modal.querySelector('#m-cat').value.trim(),
-              active:       modal.querySelector('#m-active').checked
+              name: name, retail_price: price, category: cat,
+              active: modal.querySelector('#m-active').checked
             }});
             toast('Item updated', 'ok');
           }
@@ -896,6 +906,8 @@
       if (!state.stores) {
         try { state.stores = await srv('ui_listStores'); } catch (e) {}
       }
+      // Bail if user tab-switched during the stores fetch.
+      if (state.view !== 'sellers') return;
 
       $('#sel-refresh').addEventListener('click', loadSellers);
       $('#sel-add').addEventListener('click', function () { openSellerModal(null); });
@@ -1390,25 +1402,29 @@
       modal.querySelector('[data-modal-cancel]').addEventListener('click', function () { modal.remove(); });
       modal.querySelector('[data-modal-ok]').addEventListener('click', async function () {
         var btn = modal.querySelector('[data-modal-ok]');
+        var name    = modal.querySelector('#m-name').value.trim();
+        var price   = Number(modal.querySelector('#m-price').value);
+        var sQty    = Number(modal.querySelector('#m-siopao').value);
+        var gQty    = Number(modal.querySelector('#m-gulaman').value);
+        if (!name) { toast('Name required', 'err'); return; }
+        if (!isFinite(price) || price < 0) { toast('Price must be a non-negative number', 'err'); return; }
+        if (!isFinite(sQty)  || sQty  < 0) { toast('Siopao qty must be a non-negative integer', 'err'); return; }
+        if (!isFinite(gQty)  || gQty  < 0) { toast('Gulaman qty must be a non-negative integer', 'err'); return; }
         btn.disabled = true;
         try {
           if (isNew) {
+            var newId = modal.querySelector('#m-bundle-id').value.trim();
+            if (!newId) { toast('ID required', 'err'); btn.disabled = false; return; }
             await srv('ui_addBundle', {
-              bundle_id:            modal.querySelector('#m-bundle-id').value.trim(),
-              name:                 modal.querySelector('#m-name').value.trim(),
-              price:                Number(modal.querySelector('#m-price').value),
-              includes_siopao_qty:  Number(modal.querySelector('#m-siopao').value),
-              includes_gulaman_qty: Number(modal.querySelector('#m-gulaman').value),
-              active:               true
+              bundle_id: newId, name: name, price: price,
+              includes_siopao_qty: sQty, includes_gulaman_qty: gQty, active: true
             });
             toast('Bundle added', 'ok');
           } else {
             await srv('ui_updateBundle', { bundle_id: bundle_id, fields: {
-              name:                 modal.querySelector('#m-name').value.trim(),
-              price:                Number(modal.querySelector('#m-price').value),
-              includes_siopao_qty:  Number(modal.querySelector('#m-siopao').value),
-              includes_gulaman_qty: Number(modal.querySelector('#m-gulaman').value),
-              active:               modal.querySelector('#m-active').checked
+              name: name, price: price,
+              includes_siopao_qty: sQty, includes_gulaman_qty: gQty,
+              active: modal.querySelector('#m-active').checked
             }});
             toast('Bundle updated', 'ok');
           }
@@ -1448,7 +1464,9 @@
         if (adminAuth) clearAuth();
         showLoginGate('');
       } catch (err) {
-        $('#loading').textContent = 'Failed to load: ' + (err.message || err);
+        $('#loading').innerHTML =
+          'Failed to load: ' + esc(err.message || String(err)) +
+          '<br><br><button class="btn small secondary" onclick="location.reload()">Retry</button>';
       }
     }
 
@@ -1456,14 +1474,15 @@
       opts = opts || {};
       $('#auth-gate').hidden = false;
       $('#auth-msg').innerHTML = msgHtml || '&nbsp;';
-      if (opts.disableForm) {
-        $('#lg-user').disabled = true;
-        $('#lg-pass').disabled = true;
-        $('#login-btn').disabled = true;
-      }
-      // Wire form submit (idempotent — addEventListener with no de-dupe
-      // is fine because init runs at most once per page load).
-      $('#login-form').addEventListener('submit', onLoginSubmit);
+      // Re-enable in case a previous showLoginGate disabled the form and we
+      // came back here (e.g., logout after a configured-creds session).
+      $('#lg-user').disabled = !!opts.disableForm;
+      $('#lg-pass').disabled = !!opts.disableForm;
+      $('#login-btn').disabled = !!opts.disableForm;
+      // .onsubmit replaces any prior handler — addEventListener would stack
+      // a new listener every time showLoginGate runs (it's called from both
+      // init and logout), causing duplicate submits after a logout cycle.
+      $('#login-form').onsubmit = onLoginSubmit;
     }
 
     async function onLoginSubmit(e) {
@@ -1487,13 +1506,19 @@
       }
     }
 
+    var _appWired = false;
     function enterApp(username) {
       $('#who-email').textContent = username;
       $('#app').hidden = false;
-      document.querySelectorAll('.tabs button').forEach(function (b) {
-        b.addEventListener('click', function () { showView(b.dataset.view); });
-      });
-      $('#logout-btn').addEventListener('click', logout);
+      // Tab + logout handlers are wired exactly once per page load, even
+      // across logout/login cycles — re-binding would stack duplicates.
+      if (!_appWired) {
+        document.querySelectorAll('.tabs button').forEach(function (b) {
+          b.addEventListener('click', function () { showView(b.dataset.view); });
+        });
+        $('#logout-btn').addEventListener('click', logout);
+        _appWired = true;
+      }
       showView('dashboard');
     }
 
