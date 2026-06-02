@@ -344,12 +344,17 @@ function resetPin(params) {
 }
 
 function deactivateSeller(params) {
+  return setSellerActive({ seller_id: params && params.seller_id, active: false });
+}
+
+function setSellerActive(params) {
   return withLock_(function () {
     const seller_id = params && params.seller_id;
     if (!seller_id) throw new Error('seller_id required');
+    const active = Boolean(params && params.active);
     const seller = getRowByKey_(TABS.SELLERS, 'seller_id', seller_id);
     if (!seller) throw new Error('Seller not found');
-    updateRow_(TABS.SELLERS, seller._row, { active: false });
+    updateRow_(TABS.SELLERS, seller._row, { active: active });
     return { ok: true };
   });
 }

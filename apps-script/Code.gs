@@ -87,6 +87,7 @@ var ADMIN_METHODS = {
   addSeller:           addSeller,
   resetPin:            resetPin,
   deactivateSeller:    deactivateSeller,
+  setSellerActive:     setSellerActive,
   forceCloseShift:     forceCloseShift,
   voidSale:            voidSale,
   getSalesLog:         getSalesLog,

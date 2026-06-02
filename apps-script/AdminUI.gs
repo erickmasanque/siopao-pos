@@ -40,7 +40,7 @@ function ui_getDashboard()        { return _adminCall_(getDashboard); }
 function ui_getMenu()             { return _adminCall_(getMenu); }            // catalog for filters/dropdowns
 function ui_getInventory(params)  { return _adminCall_(getInventory, params); }
 function ui_getInventoryDetail(params) { return _adminCall_(getInventoryDetail, params); }
-function ui_listSellers()         { _adminGate_(); return _readSellers_(); }
+function ui_listSellers()         { _adminGate_(); return _readSellersWithStats_(); }
 function ui_listStores()          { _adminGate_(); return _readStores_(); }
 
 // ---------- Mutations ----------
@@ -52,6 +52,7 @@ function ui_updateBundle(params)     { return _adminCall_(updateBundle, params);
 function ui_addSeller(params)        { return _adminCall_(addSeller, params); }
 function ui_resetPin(params)         { return _adminCall_(resetPin, params); }
 function ui_deactivateSeller(params) { return _adminCall_(deactivateSeller, params); }
+function ui_setSellerActive(params)  { return _adminCall_(setSellerActive, params); }
 function ui_forceCloseShift(params)  { return _adminCall_(forceCloseShift, params); }
 function ui_voidSale(params)         { return _adminCall_(voidSale, params); }
 
@@ -79,6 +80,23 @@ function _readSellers_() {
       store_id: s.store_id,
       active: Boolean(s.active)
     };
+  });
+}
+
+/** Sellers list with last-shift timestamp joined from Shifts tab. */
+function _readSellersWithStats_() {
+  const lastShift = {};
+  readTable_(TABS.SHIFTS).forEach(function (sh) {
+    if (!sh.seller_id || !sh.start_time) return;
+    const ts = new Date(sh.start_time).getTime();
+    if (!lastShift[sh.seller_id] || ts > lastShift[sh.seller_id]) {
+      lastShift[sh.seller_id] = ts;
+    }
+  });
+  return _readSellers_().map(function (s) {
+    return Object.assign(s, {
+      last_shift_at: lastShift[s.seller_id] ? new Date(lastShift[s.seller_id]) : null
+    });
   });
 }
 

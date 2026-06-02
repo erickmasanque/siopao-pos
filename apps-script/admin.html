@@ -314,7 +314,7 @@
       dashboard: { title: 'Dashboard',     render: renderDashboard },
       inventory: { title: 'Inventory',     render: renderInventory },
       menu:      { title: 'Menu & Prices', render: renderMenu },
-      sellers:   { title: 'Sellers',       render: renderStub },
+      sellers:   { title: 'Sellers',       render: renderSellers },
       sales:     { title: 'Sales Log',     render: renderStub },
       shifts:    { title: 'Shift History', render: renderStub }
     };
@@ -797,6 +797,166 @@
           btn.disabled = false;
         }
       });
+    }
+
+    // ---------- Sellers ----------
+    async function renderSellers() {
+      $('#content').innerHTML =
+        '<div class="toolbar">' +
+        '  <h2 class="section-title">Sellers</h2>' +
+        '  <div class="controls">' +
+        '    <button class="btn small secondary" id="sel-refresh">Refresh</button>' +
+        '    <button class="btn small" id="sel-add">+ Add seller</button>' +
+        '  </div>' +
+        '</div>' +
+        '<div id="sel-body"><div class="empty">Loading…</div></div>';
+
+      // Ensure stores cache is populated for the Add modal's dropdown
+      if (!state.stores) {
+        try { state.stores = await srv('ui_listStores'); } catch (e) {}
+      }
+
+      $('#sel-refresh').addEventListener('click', loadSellers);
+      $('#sel-add').addEventListener('click', function () { openSellerModal(null); });
+      await loadSellers();
+    }
+
+    async function loadSellers() {
+      try {
+        state.sellers = await srv('ui_listSellers');
+        if (state.view !== 'sellers') return;
+        renderSellersTable();
+      } catch (err) {
+        $('#sel-body').innerHTML = '<div class="empty">Failed: ' + esc(err.message) + '</div>';
+      }
+    }
+
+    function storeNameOf(store_id) {
+      var s = (state.stores || []).filter(function (x) { return x.store_id === store_id; })[0];
+      return s ? s.name : store_id;
+    }
+
+    function renderSellersTable() {
+      var sellers = state.sellers || [];
+      if (sellers.length === 0) {
+        $('#sel-body').innerHTML = '<div class="empty">No sellers yet — click + Add seller.</div>';
+        return;
+      }
+      var sorted = sellers.slice().sort(function (a, b) {
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      $('#sel-body').innerHTML =
+        '<table>' +
+        '  <thead><tr><th>Name</th><th>Store</th><th>Last shift</th><th>Status</th><th></th></tr></thead>' +
+        '  <tbody>' +
+          sorted.map(function (s) {
+            var statusBadge = s.active
+              ? '<span class="badge ok">active</span>'
+              : '<span class="badge warn">inactive</span>';
+            var actions = [
+              '<button class="btn small secondary" data-action="reset-pin" data-seller-id="' + esc(s.seller_id) + '" data-seller-name="' + esc(s.name) + '">Reset PIN</button>',
+              s.active
+                ? '<button class="btn small secondary" data-action="set-active" data-seller-id="' + esc(s.seller_id) + '" data-seller-name="' + esc(s.name) + '" data-active="false">Deactivate</button>'
+                : '<button class="btn small secondary" data-action="set-active" data-seller-id="' + esc(s.seller_id) + '" data-seller-name="' + esc(s.name) + '" data-active="true">Reactivate</button>'
+            ].join(' ');
+            return (
+              '<tr class="' + (s.active ? '' : 'row-inactive') + '">' +
+              '<td>' + esc(s.name) + '</td>' +
+              '<td>' + esc(storeNameOf(s.store_id)) + '</td>' +
+              '<td>' + esc(fmtDate(s.last_shift_at)) + '</td>' +
+              '<td>' + statusBadge + '</td>' +
+              '<td style="white-space:nowrap;">' + actions + '</td>' +
+              '</tr>'
+            );
+          }).join('') +
+        '  </tbody></table>';
+
+      document.querySelectorAll('[data-action="reset-pin"]').forEach(function (b) {
+        b.addEventListener('click', function () { openResetPinModal(b.dataset.sellerId, b.dataset.sellerName); });
+      });
+      document.querySelectorAll('[data-action="set-active"]').forEach(function (b) {
+        b.addEventListener('click', async function () {
+          var active = b.dataset.active === 'true';
+          var verb = active ? 'Reactivate' : 'Deactivate';
+          if (!confirm(verb + ' ' + b.dataset.sellerName + '?')) return;
+          b.disabled = true;
+          try {
+            await srv('ui_setSellerActive', { seller_id: b.dataset.sellerId, active: active });
+            toast(verb + 'd', 'ok');
+            await loadSellers();
+          } catch (err) { toast(err.message, 'err'); b.disabled = false; }
+        });
+      });
+    }
+
+    function openSellerModal(seller_id) {
+      var stores = (state.stores || []).filter(function (s) { return s.active; });
+      var modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML =
+        '<div class="modal-card">' +
+        '  <h3>Add seller</h3>' +
+        '  <div class="row"><label>Name</label><input type="text" id="m-name" placeholder="e.g. Lola Maria"></div>' +
+        '  <div class="row"><label>Default store</label>' +
+        '    <select id="m-store">' +
+            stores.map(function (s) { return '<option value="' + esc(s.store_id) + '">' + esc(s.name) + '</option>'; }).join('') +
+        '    </select>' +
+        '  </div>' +
+        '  <div class="row"><label>4-digit PIN</label><input type="text" id="m-pin" inputmode="numeric" maxlength="4" pattern="\\d{4}" placeholder="1234"></div>' +
+        '  <div class="row"><span class="sub">PIN must be unique among active sellers at the chosen store.</span></div>' +
+        '  <div class="modal-actions">' +
+        '    <button class="btn secondary" data-modal-cancel>Cancel</button>' +
+        '    <button class="btn" data-modal-ok>Add</button>' +
+        '  </div>' +
+        '</div>';
+      document.body.appendChild(modal);
+      modal.querySelector('[data-modal-cancel]').addEventListener('click', function () { modal.remove(); });
+      modal.querySelector('[data-modal-ok]').addEventListener('click', async function () {
+        var btn = modal.querySelector('[data-modal-ok]');
+        var name  = modal.querySelector('#m-name').value.trim();
+        var store = modal.querySelector('#m-store').value;
+        var pin   = modal.querySelector('#m-pin').value.trim();
+        if (!name) { toast('Name required', 'err'); return; }
+        if (!/^\d{4}$/.test(pin)) { toast('PIN must be 4 digits', 'err'); return; }
+        btn.disabled = true;
+        try {
+          await srv('ui_addSeller', { name: name, store_id: store, pin: pin });
+          modal.remove();
+          toast('Seller added', 'ok');
+          await loadSellers();
+        } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
+      });
+      setTimeout(function () { modal.querySelector('#m-name').focus(); }, 0);
+    }
+
+    function openResetPinModal(seller_id, seller_name) {
+      var modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML =
+        '<div class="modal-card">' +
+        '  <h3>Reset PIN</h3>' +
+        '  <div class="row"><label>Seller</label><div>' + esc(seller_name) + '</div></div>' +
+        '  <div class="row"><label>New 4-digit PIN</label><input type="text" id="m-pin" inputmode="numeric" maxlength="4" pattern="\\d{4}" placeholder="1234"></div>' +
+        '  <div class="modal-actions">' +
+        '    <button class="btn secondary" data-modal-cancel>Cancel</button>' +
+        '    <button class="btn" data-modal-ok>Reset</button>' +
+        '  </div>' +
+        '</div>';
+      document.body.appendChild(modal);
+      modal.querySelector('[data-modal-cancel]').addEventListener('click', function () { modal.remove(); });
+      modal.querySelector('[data-modal-ok]').addEventListener('click', async function () {
+        var btn = modal.querySelector('[data-modal-ok]');
+        var pin = modal.querySelector('#m-pin').value.trim();
+        if (!/^\d{4}$/.test(pin)) { toast('PIN must be 4 digits', 'err'); return; }
+        btn.disabled = true;
+        try {
+          await srv('ui_resetPin', { seller_id: seller_id, pin: pin });
+          modal.remove();
+          toast('PIN reset', 'ok');
+        } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
+      });
+      setTimeout(function () { modal.querySelector('#m-pin').focus(); }, 0);
     }
 
     function openBundleModal(bundle_id) {
