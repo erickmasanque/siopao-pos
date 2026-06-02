@@ -206,6 +206,22 @@
     .badge.danger { background: #fde0de; color: var(--danger); }
     .badge.ok { background: #e0f0e2; color: var(--accent); }
 
+    /* ---------- Toolbars used by data views ---------- */
+    .toolbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
+    }
+    .toolbar .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .toolbar .controls label { color: var(--muted); font-size: 13px; }
+    .toolbar .controls select, .toolbar .controls input {
+      min-width: 140px;
+    }
+
+    .stock-cell { font-weight: 700; }
+    .stock-cell.low { color: var(--warn); }
+    .stock-cell.out { color: var(--danger); }
+    .row-inactive { opacity: 0.55; }
+
     /* ---------- Toast ---------- */
     .toast {
       position: fixed; bottom: 20px; left: 50%;
@@ -296,7 +312,7 @@
     // ---------- View router ----------
     var VIEWS = {
       dashboard: { title: 'Dashboard',     render: renderDashboard },
-      inventory: { title: 'Inventory',     render: renderStub },
+      inventory: { title: 'Inventory',     render: renderInventory },
       menu:      { title: 'Menu & Prices', render: renderStub },
       sellers:   { title: 'Sellers',       render: renderStub },
       sales:     { title: 'Sales Log',     render: renderStub },
@@ -489,6 +505,143 @@
     function signed(n) {
       var v = Number(n) || 0;
       return (v > 0 ? '+' : '') + fmtPeso(v);
+    }
+
+    function fmtDate(t) {
+      if (!t) return 'never';
+      var d = new Date(t);
+      var now = new Date();
+      var sameDay = d.toDateString() === now.toDateString();
+      if (sameDay) return 'today ' + fmtTime(t);
+      var diffDays = Math.floor((now - d) / 86400000);
+      if (diffDays === 1) return 'yesterday';
+      if (diffDays < 7) return diffDays + 'd ago';
+      return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    }
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+    // ---------- Inventory ----------
+    var inventoryState = { store_id: null, rows: [] };
+
+    async function renderInventory() {
+      $('#content').innerHTML =
+        '<div class="toolbar">' +
+        '  <h2 class="section-title">Inventory</h2>' +
+        '  <div class="controls">' +
+        '    <label for="inv-store">Store</label>' +
+        '    <select id="inv-store"></select>' +
+        '    <button class="btn small secondary" id="inv-refresh">Refresh</button>' +
+        '  </div>' +
+        '</div>' +
+        '<div id="inv-body"><div class="empty">Loading…</div></div>';
+
+      // Load stores once, then default to first
+      if (!state.stores) {
+        try { state.stores = await srv('ui_listStores'); }
+        catch (err) { $('#inv-body').innerHTML = '<div class="empty">Failed to load stores: ' + esc(err.message) + '</div>'; return; }
+      }
+      var sel = $('#inv-store');
+      sel.innerHTML = state.stores
+        .filter(function (s) { return s.active; })
+        .map(function (s) { return '<option value="' + esc(s.store_id) + '">' + esc(s.name) + '</option>'; })
+        .join('');
+      if (!inventoryState.store_id) inventoryState.store_id = sel.value;
+      else sel.value = inventoryState.store_id;
+
+      sel.addEventListener('change', function () {
+        inventoryState.store_id = sel.value;
+        loadInventory();
+      });
+      $('#inv-refresh').addEventListener('click', loadInventory);
+
+      await loadInventory();
+    }
+
+    async function loadInventory() {
+      var sid = inventoryState.store_id;
+      if (!sid) return;
+      $('#inv-body').innerHTML = '<div class="empty">Loading…</div>';
+      try {
+        inventoryState.rows = await srv('ui_getInventoryDetail', { store_id: sid });
+        if (state.view !== 'inventory') return;
+        renderInventoryTable();
+      } catch (err) {
+        $('#inv-body').innerHTML = '<div class="empty">Failed: ' + esc(err.message) + '</div>';
+      }
+    }
+
+    function renderInventoryTable() {
+      var rows = inventoryState.rows.slice().sort(function (a, b) {
+        // active first, then by name
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      if (rows.length === 0) {
+        $('#inv-body').innerHTML = '<div class="empty">No items in inventory for this store.</div>';
+        return;
+      }
+      $('#inv-body').innerHTML =
+        '<table>' +
+        '  <thead><tr><th>Item</th><th>Stock</th><th>Last restocked</th><th></th></tr></thead>' +
+        '  <tbody>' +
+          rows.map(function (r) {
+            var stockClass = r.stock <= 0 ? 'out' : r.stock <= 5 ? 'low' : '';
+            return (
+              '<tr class="' + (r.active ? '' : 'row-inactive') + '">' +
+              '  <td>' + esc(r.name) + (r.active ? '' : ' <span class="badge warn">inactive</span>') + '</td>' +
+              '  <td class="stock-cell ' + stockClass + '">' + r.stock + '</td>' +
+              '  <td>' + esc(fmtDate(r.last_restocked_at)) +
+                  (r.last_restocked_qty ? ' <span class="sub">(+' + r.last_restocked_qty + ')</span>' : '') +
+              '  </td>' +
+              '  <td><button class="btn small" data-action="restock" data-item-id="' + esc(r.item_id) + '" data-item-name="' + esc(r.name) + '">+ Restock</button></td>' +
+              '</tr>'
+            );
+          }).join('') +
+        '  </tbody>' +
+        '</table>';
+
+      document.querySelectorAll('[data-action="restock"]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          openRestockModal(btn.dataset.itemId, btn.dataset.itemName);
+        });
+      });
+    }
+
+    function openRestockModal(item_id, item_name) {
+      var storeName = (state.stores || []).filter(function (s) { return s.store_id === inventoryState.store_id; })[0];
+      storeName = storeName ? storeName.name : inventoryState.store_id;
+      var modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML =
+        '<div class="modal-card">' +
+        '  <h3>Restock</h3>' +
+        '  <div class="row"><label>Item</label><div>' + esc(item_name) + ' <span class="sub">@ ' + esc(storeName) + '</span></div></div>' +
+        '  <div class="row"><label>Quantity to add</label><input type="number" id="restock-qty" min="1" step="1" value="10" autofocus></div>' +
+        '  <div class="row"><label>Notes (optional)</label><input type="text" id="restock-notes" placeholder="e.g. fresh batch from kitchen"></div>' +
+        '  <div class="modal-actions">' +
+        '    <button class="btn secondary" data-modal-cancel>Cancel</button>' +
+        '    <button class="btn" data-modal-ok>Add stock</button>' +
+        '  </div>' +
+        '</div>';
+      document.body.appendChild(modal);
+      modal.querySelector('[data-modal-cancel]').addEventListener('click', function () { modal.remove(); });
+      modal.querySelector('[data-modal-ok]').addEventListener('click', async function () {
+        var ok = modal.querySelector('[data-modal-ok]');
+        var qty = Number(modal.querySelector('#restock-qty').value);
+        var notes = modal.querySelector('#restock-notes').value;
+        if (!isFinite(qty) || qty <= 0) { toast('Quantity must be positive', 'err'); return; }
+        ok.disabled = true;
+        try {
+          await srv('ui_restock', { store_id: inventoryState.store_id, item_id: item_id, qty: qty, notes: notes });
+          modal.remove();
+          toast('Restocked +' + qty + ' ' + item_name, 'ok');
+          await loadInventory();
+        } catch (err) {
+          toast(err.message, 'err');
+          ok.disabled = false;
+        }
+      });
+      setTimeout(function () { modal.querySelector('#restock-qty').focus(); modal.querySelector('#restock-qty').select(); }, 0);
     }
 
     // ---------- Boot ----------

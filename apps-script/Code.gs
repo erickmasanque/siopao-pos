@@ -77,17 +77,18 @@ var PUBLIC_METHODS = {
 };
 
 var ADMIN_METHODS = {
-  getDashboard:      getDashboard,
-  restock:           restock,
-  updateItem:        updateItem,
-  updateBundle:      updateBundle,
-  addSeller:         addSeller,
-  resetPin:          resetPin,
-  deactivateSeller:  deactivateSeller,
-  forceCloseShift:   forceCloseShift,
-  voidSale:          voidSale,
-  getSalesLog:       getSalesLog,
-  getShiftHistory:   getShiftHistory
+  getDashboard:        getDashboard,
+  getInventoryDetail:  getInventoryDetail,
+  restock:             restock,
+  updateItem:          updateItem,
+  updateBundle:        updateBundle,
+  addSeller:           addSeller,
+  resetPin:            resetPin,
+  deactivateSeller:    deactivateSeller,
+  forceCloseShift:     forceCloseShift,
+  voidSale:            voidSale,
+  getSalesLog:         getSalesLog,
+  getShiftHistory:     getShiftHistory
 };
 
 function route_(method, params) {

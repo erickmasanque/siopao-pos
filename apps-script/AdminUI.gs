@@ -39,6 +39,7 @@ function ui_whoami() {
 function ui_getDashboard()        { return _adminCall_(getDashboard); }
 function ui_getMenu()             { return _adminCall_(getMenu); }            // catalog for filters/dropdowns
 function ui_getInventory(params)  { return _adminCall_(getInventory, params); }
+function ui_getInventoryDetail(params) { return _adminCall_(getInventoryDetail, params); }
 function ui_listSellers()         { _adminGate_(); return _readSellers_(); }
 function ui_listStores()          { _adminGate_(); return _readStores_(); }
 

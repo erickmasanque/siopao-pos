@@ -119,6 +119,44 @@ function getDashboard() {
 
 // ---------- Inventory ----------
 
+/**
+ * Admin-side inventory snapshot for ONE store. Unlike public getInventory,
+ * this joins the Restocks tab to expose true "last restocked at" per item
+ * (the Inventory row's updated_at also moves on sales — useless for the
+ * "last restock" column).
+ */
+function getInventoryDetail(params) {
+  const store_id = params && params.store_id;
+  if (!store_id) throw new Error('store_id required');
+
+  const lastRestock = {};
+  readTable_(TABS.RESTOCKS).forEach(function (r) {
+    if (r.store_id !== store_id) return;
+    const ts = r.timestamp ? new Date(r.timestamp).getTime() : 0;
+    if (!lastRestock[r.item_id] || ts > lastRestock[r.item_id].ts) {
+      lastRestock[r.item_id] = { ts: ts, qty: Number(r.qty_added) || 0 };
+    }
+  });
+
+  const itemNameMap = _nameMap_(TABS.ITEMS, 'item_id', 'name');
+  const itemActiveMap = {};
+  readTable_(TABS.ITEMS).forEach(function (i) { itemActiveMap[i.item_id] = Boolean(i.active); });
+
+  return readTable_(TABS.INVENTORY)
+    .filter(function (r) { return r.store_id === store_id; })
+    .map(function (r) {
+      const lr = lastRestock[r.item_id];
+      return {
+        item_id: r.item_id,
+        name: itemNameMap[r.item_id] || r.item_id,
+        active: itemActiveMap[r.item_id] !== false,
+        stock: Number(r.stock) || 0,
+        last_restocked_at: lr ? new Date(lr.ts) : null,
+        last_restocked_qty: lr ? lr.qty : null
+      };
+    });
+}
+
 function restock(params, ctx) {
   return withLock_(function () {
     const store_id = params && params.store_id;
