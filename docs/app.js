@@ -115,7 +115,21 @@ async function api(method, params) {
     body: JSON.stringify({ method, params: params || {} })
   });
   if (!resp.ok) throw new Error('HTTP ' + resp.status);
-  const json = await resp.json();
+  const text = await resp.text();
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch (e) {
+    // Apps Script returns an HTML error page when the script itself fails
+    // to evaluate (missing function reference, stale deploy, syntax error).
+    // Surface that explicitly — the previous behaviour bubbled up as a
+    // confusing "no connection" message downstream.
+    const looksHtml = text.indexOf('<!DOCTYPE') === 0 || text.indexOf('<html') >= 0;
+    const snippet = text.slice(0, 240).replace(/\s+/g, ' ');
+    throw new Error(looksHtml
+      ? 'Backend error (HTML returned — likely a missing function or stale deployment): ' + snippet
+      : 'Non-JSON response from backend: ' + snippet);
+  }
   if (!json.ok) throw new Error(json.error || 'Unknown error');
   return json.data;
 }
@@ -856,19 +870,29 @@ async function init() {
   syncNow();
   updateConnDot();
 
+  let menuError = null;
   if (navigator.onLine) {
     try {
       state.menu = await api('getMenu');
       saveMenu();
     } catch (err) {
       console.warn('Menu fetch failed:', err);
+      menuError = err;
     }
   }
 
   if (!state.menu) {
+    const reason = !navigator.onLine
+      ? 'Offline and no cached menu yet. Connect to the internet and reload.'
+      : menuError
+        ? 'Could not load the menu from the backend. ' + (menuError.message || String(menuError))
+        : 'No menu available. Reload to retry.';
     document.body.innerHTML =
-      '<div style="padding:24px;text-align:center;font-family:sans-serif;">' +
-      'No connection and no cached menu. Connect to internet and reload.</div>';
+      '<div style="padding:24px;font-family:sans-serif;max-width:560px;margin:40px auto;color:#221a14;">' +
+      '<h2 style="color:#c44b2f;margin:0 0 12px;">Can’t start</h2>' +
+      '<p>' + reason.replace(/[<>&]/g, (c) => ({ '<':'&lt;','>':'&gt;','&':'&amp;' }[c])) + '</p>' +
+      '<p style="color:#7a6a5e;font-size:13px;">Reload after fixing.</p>' +
+      '</div>';
     return;
   }
 
