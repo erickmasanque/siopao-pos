@@ -154,6 +154,58 @@
     .modal-card .row label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
     .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
 
+    /* ---------- Dashboard ---------- */
+    .dash-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 16px;
+    }
+    .dash-head .day { color: var(--muted); font-size: 13px; }
+    .dash-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    }
+    @media (max-width: 720px) { .dash-grid { grid-template-columns: 1fr; } }
+    .stat-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
+    .stat-card h3 {
+      margin: 0 0 8px; font-size: 12px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .stat-big { font-size: 30px; font-weight: 700; color: var(--primary); }
+    .stat-row {
+      display: flex; justify-content: space-between; padding: 6px 0;
+      font-size: 14px;
+    }
+    .stat-row + .stat-row { border-top: 1px dashed var(--border); }
+    .stat-row .label { color: var(--muted); }
+    .stat-row .val { font-weight: 600; }
+    .stat-store-block + .stat-store-block { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .stat-store-name {
+      font-weight: 700; color: var(--text); margin-bottom: 6px; font-size: 14px;
+    }
+
+    .list-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
+    .list-card h3 {
+      margin: 0 0 12px; font-size: 14px; font-weight: 700;
+      display: flex; justify-content: space-between; align-items: baseline;
+    }
+    .list-card h3 small { font-weight: 400; color: var(--muted); font-size: 12px; }
+    .empty { color: var(--muted); font-style: italic; padding: 12px 0; }
+
+    .row-line {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0; gap: 8px;
+    }
+    .row-line + .row-line { border-top: 1px dashed var(--border); }
+    .row-line .main { flex: 1; min-width: 0; }
+    .row-line .sub { color: var(--muted); font-size: 12px; }
+
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+    }
+    .badge.warn { background: #fff3cd; color: var(--warn); }
+    .badge.danger { background: #fde0de; color: var(--danger); }
+    .badge.ok { background: #e0f0e2; color: var(--accent); }
+
     /* ---------- Toast ---------- */
     .toast {
       position: fixed; bottom: 20px; left: 50%;
@@ -243,7 +295,7 @@
 
     // ---------- View router ----------
     var VIEWS = {
-      dashboard: { title: 'Dashboard',     render: renderStub },
+      dashboard: { title: 'Dashboard',     render: renderDashboard },
       inventory: { title: 'Inventory',     render: renderStub },
       menu:      { title: 'Menu & Prices', render: renderStub },
       sellers:   { title: 'Sellers',       render: renderStub },
@@ -268,6 +320,175 @@
         '  <h2>' + esc(v.title) + '</h2>' +
         '  <p>This view lands in a later heat. Auth + shell ready.</p>' +
         '</div>';
+    }
+
+    // ---------- Dashboard ----------
+    async function renderDashboard() {
+      $('#content').innerHTML =
+        '<div class="dash-head">' +
+        '  <h2 class="section-title">Today</h2>' +
+        '  <button class="btn small secondary" id="dash-refresh">Refresh</button>' +
+        '</div>' +
+        '<div id="dash-body"><div class="empty">Loading…</div></div>';
+
+      $('#dash-refresh').addEventListener('click', loadDashboard);
+      await loadDashboard();
+    }
+
+    async function loadDashboard() {
+      try {
+        var data = await srv('ui_getDashboard');
+        if (state.view !== 'dashboard') return; // tab switched mid-load
+        $('#dash-body').innerHTML = buildDashboardHtml(data);
+        wireDashboardActions();
+      } catch (err) {
+        $('#dash-body').innerHTML =
+          '<div class="empty">Failed to load: ' + esc(err.message || err) + '</div>';
+      }
+    }
+
+    function buildDashboardHtml(d) {
+      var t = d.today || { by_store: {}, total: { cash: 0, gcash: 0, count: 0 } };
+      var total = t.total || { cash: 0, gcash: 0, count: 0 };
+      var revenue = (Number(total.cash) || 0) + (Number(total.gcash) || 0);
+
+      var perStoreHtml = '';
+      var storeKeys = Object.keys(t.by_store || {});
+      if (storeKeys.length === 0) {
+        perStoreHtml = '<div class="empty">No sales recorded today yet.</div>';
+      } else {
+        // Map store_id → display name via active_shifts / variance_alerts if any,
+        // else fall back to the store_id itself.
+        var storeNameLookup = {};
+        (d.active_shifts || []).forEach(function (s) { storeNameLookup[s.store_id] = s.store_name; });
+        (d.variance_alerts || []).forEach(function (s) { storeNameLookup[s.store_id] = s.store_name; });
+
+        perStoreHtml = storeKeys.map(function (sid) {
+          var row = t.by_store[sid];
+          var name = storeNameLookup[sid] || sid;
+          return (
+            '<div class="stat-store-block">' +
+            '  <div class="stat-store-name">' + esc(name) + '</div>' +
+            '  <div class="stat-row"><span class="label">Cash</span><span class="val">' + fmtPeso(row.cash) + '</span></div>' +
+            '  <div class="stat-row"><span class="label">GCash</span><span class="val">' + fmtPeso(row.gcash) + '</span></div>' +
+            '  <div class="stat-row"><span class="label">Sales</span><span class="val">' + (row.count || 0) + '</span></div>' +
+            '</div>'
+          );
+        }).join('');
+      }
+
+      var bestHtml = (!d.best_sellers || d.best_sellers.length === 0)
+        ? '<div class="empty">Nothing sold today yet.</div>'
+        : d.best_sellers.slice(0, 10).map(function (b) {
+            return (
+              '<div class="row-line">' +
+              '  <div class="main">' + esc(b.name) + '</div>' +
+              '  <div class="val">×' + b.qty_sold + '</div>' +
+              '</div>'
+            );
+          }).join('');
+
+      var activeHtml = (!d.active_shifts || d.active_shifts.length === 0)
+        ? '<div class="empty">No active shifts right now.</div>'
+        : d.active_shifts.map(function (s) {
+            return (
+              '<div class="row-line">' +
+              '  <div class="main">' +
+              '    <div>' + esc(s.seller_name) + ' <span class="sub">@ ' + esc(s.store_name) + '</span></div>' +
+              '    <div class="sub">since ' + fmtTime(s.start_time) + ' · running ' + runningDuration(s.start_time) + '</div>' +
+              '  </div>' +
+              '  <button class="btn small secondary" data-action="force-close" data-shift-id="' + esc(s.shift_id) + '" data-seller="' + esc(s.seller_name) + '">Force close</button>' +
+              '</div>'
+            );
+          }).join('');
+
+      var alertsHtml = (!d.variance_alerts || d.variance_alerts.length === 0)
+        ? '<div class="empty">No variance alerts today (threshold ₱20).</div>'
+        : d.variance_alerts.map(function (a) {
+            var bits = [];
+            if (Math.abs(a.variance_cash)  > 0.005) bits.push('Cash ' + signed(a.variance_cash));
+            if (Math.abs(a.variance_gcash) > 0.005) bits.push('GCash ' + signed(a.variance_gcash));
+            return (
+              '<div class="row-line">' +
+              '  <div class="main">' +
+              '    <div>' + esc(a.seller_name) + ' <span class="sub">@ ' + esc(a.store_name) + '</span></div>' +
+              '    <div class="sub">closed ' + fmtTime(a.end_time) + '</div>' +
+              '  </div>' +
+              '  <span class="badge danger">' + bits.join(' · ') + '</span>' +
+              '</div>'
+            );
+          }).join('');
+
+      return (
+        '<div class="dash-grid">' +
+        '  <div class="stat-card">' +
+        '    <h3>Revenue today</h3>' +
+        '    <div class="stat-big">' + fmtPeso(revenue) + '</div>' +
+        '    <div class="stat-row"><span class="label">Cash</span><span class="val">' + fmtPeso(total.cash) + '</span></div>' +
+        '    <div class="stat-row"><span class="label">GCash</span><span class="val">' + fmtPeso(total.gcash) + '</span></div>' +
+        '    <div class="stat-row"><span class="label">Sales</span><span class="val">' + (total.count || 0) + '</span></div>' +
+        '  </div>' +
+        '  <div class="stat-card">' +
+        '    <h3>By store</h3>' +
+        '    ' + perStoreHtml +
+        '  </div>' +
+        '  <div class="list-card">' +
+        '    <h3>Best sellers <small>today</small></h3>' +
+        '    ' + bestHtml +
+        '  </div>' +
+        '  <div class="list-card">' +
+        '    <h3>Active shifts</h3>' +
+        '    ' + activeHtml +
+        '  </div>' +
+        '  <div class="list-card" style="grid-column: 1 / -1;">' +
+        '    <h3>Variance alerts <small>today, &gt; ₱20</small></h3>' +
+        '    ' + alertsHtml +
+        '  </div>' +
+        '</div>'
+      );
+    }
+
+    function wireDashboardActions() {
+      document.querySelectorAll('[data-action="force-close"]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          var shiftId = btn.dataset.shiftId;
+          var who = btn.dataset.seller;
+          var ok = confirm('Force-close ' + who + "'s shift?\n\nNo counted cash/GCash will be recorded — variance fields will be blank. The shift's notes will be stamped [FORCE CLOSED BY ADMIN].");
+          if (!ok) return;
+          btn.disabled = true;
+          try {
+            await srv('ui_forceCloseShift', { shift_id: shiftId });
+            toast('Shift force-closed', 'ok');
+            await loadDashboard();
+          } catch (err) {
+            toast(err.message, 'err');
+            btn.disabled = false;
+          }
+        });
+      });
+    }
+
+    // ---------- Date/duration formatters ----------
+    function fmtTime(t) {
+      if (!t) return '—';
+      var d = new Date(t);
+      var h = d.getHours();
+      var m = d.getMinutes();
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      var hh = ((h + 11) % 12) + 1;
+      return hh + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm;
+    }
+    function runningDuration(t) {
+      if (!t) return '—';
+      var ms = Date.now() - new Date(t).getTime();
+      if (ms < 0) return '—';
+      var m = Math.floor(ms / 60000);
+      if (m < 60) return m + 'm';
+      return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+    }
+    function signed(n) {
+      var v = Number(n) || 0;
+      return (v > 0 ? '+' : '') + fmtPeso(v);
     }
 
     // ---------- Boot ----------
