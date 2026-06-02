@@ -457,6 +457,63 @@ function voidSale(params, ctx) {
 
 // ---------- Logs ----------
 
+/**
+ * Restock history with date/store/item filters. Returns the raw rows
+ * (newest first) plus an aggregated by_item rollup so the UI can show
+ * "we restocked X units of asado this period" without re-summing.
+ */
+function getRestockLog(params) {
+  const f = params || {};
+  const fromTs = f.from ? new Date(f.from).getTime() : -Infinity;
+  const toTs   = f.to   ? new Date(f.to).getTime()   : Infinity;
+
+  const storeNameMap = _nameMap_(TABS.STORES, 'store_id', 'name');
+  const itemNameMap  = _nameMap_(TABS.ITEMS,  'item_id',  'name');
+
+  const rows = readTable_(TABS.RESTOCKS).filter(function (r) {
+    const ts = r.timestamp ? new Date(r.timestamp).getTime() : 0;
+    if (ts < fromTs || ts > toTs) return false;
+    if (f.store_id && r.store_id !== f.store_id) return false;
+    if (f.item_id  && r.item_id  !== f.item_id)  return false;
+    return true;
+  }).map(function (r) {
+    return {
+      restock_id: r.restock_id,
+      timestamp: r.timestamp,
+      store_id: r.store_id,
+      store_name: storeNameMap[r.store_id] || r.store_id,
+      item_id: r.item_id,
+      item_name: itemNameMap[r.item_id] || r.item_id,
+      qty_added: Number(r.qty_added) || 0,
+      added_by: r.added_by || '',
+      notes: r.notes || ''
+    };
+  });
+
+  rows.sort(function (a, b) {
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+  });
+
+  const totalsMap = {};
+  rows.forEach(function (r) {
+    if (!totalsMap[r.item_id]) {
+      totalsMap[r.item_id] = {
+        item_id: r.item_id,
+        item_name: r.item_name,
+        total_qty: 0,
+        restock_count: 0
+      };
+    }
+    totalsMap[r.item_id].total_qty     += r.qty_added;
+    totalsMap[r.item_id].restock_count += 1;
+  });
+  const totals_by_item = Object.keys(totalsMap)
+    .map(function (k) { return totalsMap[k]; })
+    .sort(function (a, b) { return b.total_qty - a.total_qty; });
+
+  return { rows: rows, totals_by_item: totals_by_item };
+}
+
 function getSalesLog(params) {
   const f = params || {};
   const fromTs = f.from ? new Date(f.from).getTime() : -Infinity;
@@ -556,6 +613,85 @@ function getShiftHistory(params) {
     return new Date(b.start_time).getTime() - new Date(a.start_time).getTime();
   });
   return rows;
+}
+
+// ---------- Production switchover ----------
+
+/**
+ * Wipe transactional rows (Sales, Shifts, Restocks) and reset all
+ * Inventory.stock cells to 0. Preserves: Stores, Items, Bundles, Sellers,
+ * Inventory row structure, and Script Properties (admin password etc).
+ *
+ * Used at the test→production handoff so the workbook starts fresh.
+ *
+ * Friction: caller MUST send `confirm: 'RESET-FOR-PRODUCTION'`. The
+ * admin UI requires the user to type RESET in a confirmation field, then
+ * sends the literal phrase to the server. Without the exact phrase we
+ * throw — prevents accidental wipes from script-console fat-fingering.
+ *
+ * Caveats the admin should know:
+ *   - Doesn't touch Sellers — test sellers should be deactivated in the
+ *     Sellers tab beforehand. Removing them entirely would orphan FK
+ *     references in any sales/shifts we're about to wipe, but the safer
+ *     play is to keep them and let the admin decide.
+ *   - Doesn't tell seller phones their localStorage is now stale.
+ *     Sellers should refresh / clear cache after the reset.
+ *   - If a seller is mid-shift, their next submitSale will hit a missing
+ *     shift_id (the row will still be inserted but is orphaned in
+ *     reports). Run this between shifts, not during one.
+ */
+function resetForProduction(params, ctx) {
+  return withLock_(function () {
+    const phrase = params && params.confirm;
+    if (phrase !== 'RESET-FOR-PRODUCTION') {
+      throw new Error('Confirmation phrase mismatch. To proceed pass {confirm: "RESET-FOR-PRODUCTION"}.');
+    }
+
+    const wiped = {
+      sales:                  _wipeDataRows_(TABS.SALES),
+      shifts:                 _wipeDataRows_(TABS.SHIFTS),
+      restocks:               _wipeDataRows_(TABS.RESTOCKS),
+      inventory_rows_reset:   _resetInventoryStock_()
+    };
+
+    Logger.log('resetForProduction executed by ' + ((ctx && ctx.adminEmail) || '(unknown)') +
+               ' — wiped: ' + JSON.stringify(wiped));
+
+    return {
+      ok: true,
+      wiped: wiped,
+      by: (ctx && ctx.adminEmail) || ''
+    };
+  });
+}
+
+function _wipeDataRows_(tabName) {
+  const sheet = getSheet_(tabName);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  const count = lastRow - 1;
+  sheet.deleteRows(2, count);
+  return count;
+}
+
+function _resetInventoryStock_() {
+  const sheet = getSheet_(TABS.INVENTORY);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  const cols = SCHEMA[TABS.INVENTORY];
+  let stockIdx = -1, updIdx = -1;
+  for (let i = 0; i < cols.length; i++) {
+    if (cols[i].name === 'stock')      stockIdx = i + 1;
+    if (cols[i].name === 'updated_at') updIdx   = i + 1;
+  }
+  const count = lastRow - 1;
+  const now = new Date();
+  const zeros = [];
+  const nows  = [];
+  for (let i = 0; i < count; i++) { zeros.push([0]); nows.push([now]); }
+  sheet.getRange(2, stockIdx, count, 1).setValues(zeros);
+  sheet.getRange(2, updIdx,   count, 1).setValues(nows);
+  return count;
 }
 
 // ---------- Internal helpers ----------

@@ -77,6 +77,10 @@ function ui_voidSale(params)         { return _adminCall_(voidSale, params); }
 // ---------- Logs ----------
 function ui_getSalesLog(params)     { return _adminCall_(getSalesLog, params); }
 function ui_getShiftHistory(params) { return _adminCall_(getShiftHistory, params); }
+function ui_getRestockLog(params)   { return _adminCall_(getRestockLog, params); }
+
+// ---------- Production switchover ----------
+function ui_resetForProduction(params) { return _adminCall_(resetForProduction, params); }
 
 // ---------- Internals ----------
 

@@ -91,7 +91,9 @@ var ADMIN_METHODS = {
   forceCloseShift:     forceCloseShift,
   voidSale:            voidSale,
   getSalesLog:         getSalesLog,
-  getShiftHistory:     getShiftHistory
+  getShiftHistory:     getShiftHistory,
+  getRestockLog:       getRestockLog,
+  resetForProduction:  resetForProduction
 };
 
 function route_(method, params) {

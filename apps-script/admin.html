@@ -304,10 +304,12 @@
     <nav class="tabs">
       <button data-view="dashboard">Dashboard</button>
       <button data-view="inventory">Inventory</button>
+      <button data-view="restocks">Restocks</button>
       <button data-view="menu">Menu &amp; Prices</button>
       <button data-view="sellers">Sellers</button>
       <button data-view="sales">Sales Log</button>
       <button data-view="shifts">Shift History</button>
+      <button data-view="settings">Settings</button>
     </nav>
 
     <main id="content" class="content"></main>
@@ -391,10 +393,12 @@
     var VIEWS = {
       dashboard: { title: 'Dashboard',     render: renderDashboard },
       inventory: { title: 'Inventory',     render: renderInventory },
+      restocks:  { title: 'Restock Log',   render: renderRestockLog },
       menu:      { title: 'Menu & Prices', render: renderMenu },
       sellers:   { title: 'Sellers',       render: renderSellers },
       sales:     { title: 'Sales Log',     render: renderSalesLog },
-      shifts:    { title: 'Shift History', render: renderShiftHistory }
+      shifts:    { title: 'Shift History', render: renderShiftHistory },
+      settings:  { title: 'Settings',      render: renderSettings }
     };
 
     function showView(name) {
@@ -1079,6 +1083,12 @@
           sellers.map(function (s) { return '<option value="' + esc(s.seller_id) + '"' + (f.seller_id === s.seller_id ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('') +
           '</select></div>';
       }
+      if (opts.includeItem) {
+        var items = ((state.menu && state.menu.items) || []).slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+        html += '  <div class="field"><label>Item</label><select id="f-item"><option value="">All</option>' +
+          items.map(function (i) { return '<option value="' + esc(i.item_id) + '"' + (f.item_id === i.item_id ? ' selected' : '') + '>' + esc(i.name) + '</option>'; }).join('') +
+          '</select></div>';
+      }
       if (opts.includePayment) {
         html += '  <div class="field"><label>Payment</label><div class="pill-group" id="f-pay">' +
           ['', 'cash', 'gcash'].map(function (v) {
@@ -1110,6 +1120,7 @@
       };
       if (opts.includeStore)   out.store_id  = document.getElementById('f-store').value || undefined;
       if (opts.includeSeller)  out.seller_id = document.getElementById('f-seller').value || undefined;
+      if (opts.includeItem)    out.item_id   = document.getElementById('f-item').value   || undefined;
       if (opts.includePayment) {
         var pBtn = document.querySelector('#f-pay button.active');
         var pv = pBtn ? pBtn.dataset.pay : '';
@@ -1436,6 +1447,165 @@
           btn.disabled = false;
         }
       });
+    }
+
+    // ---------- Restock Log ----------
+    var restockLogState = { rows: [], totals_by_item: [] };
+
+    async function renderRestockLog() {
+      $('#content').innerHTML = '<div class="empty">Loading…</div>';
+      await ensureFilterCaches();
+      if (state.view !== 'restocks') return;
+      $('#content').innerHTML =
+        '<h2 class="section-title">Restock Log</h2>' +
+        renderFilterBar({ includeStore: true, includeItem: true }) +
+        '<div id="restock-meta" class="results-count"></div>' +
+        '<div id="restock-totals"></div>' +
+        '<div id="restock-body"><div class="empty">Click Apply to load.</div></div>';
+
+      $('#f-apply').addEventListener('click', loadRestockLog);
+      await loadRestockLog();
+    }
+
+    async function loadRestockLog() {
+      var f = readFilters({ includeStore: true, includeItem: true });
+      $('#restock-body').innerHTML = '<div class="empty">Loading…</div>';
+      try {
+        var data = await srv('ui_getRestockLog', f);
+        if (state.view !== 'restocks') return;
+        restockLogState = data;
+        renderRestockTables();
+      } catch (err) {
+        $('#restock-body').innerHTML = '<div class="empty">Failed: ' + esc(err.message) + '</div>';
+      }
+    }
+
+    function renderRestockTables() {
+      var rows = restockLogState.rows || [];
+      var totals = restockLogState.totals_by_item || [];
+      var grandTotal = totals.reduce(function (s, t) { return s + t.total_qty; }, 0);
+
+      $('#restock-meta').innerHTML =
+        rows.length + ' restock entries · ' + grandTotal + ' total units added';
+
+      if (totals.length > 0) {
+        $('#restock-totals').innerHTML =
+          '<div class="card" style="padding:12px 14px;margin-bottom:14px;">' +
+          '<h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;">Totals by item</h3>' +
+          '<table style="box-shadow:none;">' +
+          '<thead><tr><th>Item</th><th class="cell-num">Restocks</th><th class="cell-num">Total units</th></tr></thead>' +
+          '<tbody>' +
+          totals.map(function (t) {
+            return '<tr><td>' + esc(t.item_name) +
+              '</td><td class="cell-num">' + t.restock_count +
+              '</td><td class="cell-num"><strong>' + t.total_qty + '</strong></td></tr>';
+          }).join('') +
+          '</tbody></table></div>';
+      } else {
+        $('#restock-totals').innerHTML = '';
+      }
+
+      if (rows.length === 0) {
+        $('#restock-body').innerHTML = '<div class="empty">No restocks match these filters.</div>';
+        return;
+      }
+
+      $('#restock-body').innerHTML =
+        '<table>' +
+        '<thead><tr><th>Time</th><th>Store</th><th>Item</th><th class="cell-num">Qty added</th><th>By</th><th>Notes</th></tr></thead>' +
+        '<tbody>' +
+        rows.map(function (r) {
+          return (
+            '<tr>' +
+            '<td>' + esc(fmtDateTime(r.timestamp)) + '</td>' +
+            '<td>' + esc(r.store_name) + '</td>' +
+            '<td>' + esc(r.item_name) + '</td>' +
+            '<td class="cell-num"><strong>+' + r.qty_added + '</strong></td>' +
+            '<td>' + esc(r.added_by || '—') + '</td>' +
+            '<td>' + esc(r.notes || '') + '</td>' +
+            '</tr>'
+          );
+        }).join('') +
+        '</tbody></table>';
+    }
+
+    // ---------- Settings (incl. reset-for-production) ----------
+    function renderSettings() {
+      $('#content').innerHTML =
+        '<h2 class="section-title">Settings</h2>' +
+        '<div class="card" style="border-left:4px solid var(--danger);">' +
+        '  <h3 style="color:var(--danger);margin:0 0 10px;">Danger zone — Reset for production</h3>' +
+        '  <p style="margin:6px 0;">Wipes all test transactional data so the workbook starts fresh on production day. ' +
+        '  <strong>Removes</strong>: every sale, every shift, every restock entry. ' +
+        '  <strong>Resets</strong>: inventory stock to 0 for every (store, item). ' +
+        '  <strong>Keeps</strong>: stores, items + prices, bundles, sellers, your admin password.</p>' +
+        '  <p class="sub">Make sure no sellers are mid-shift, and tell them to refresh their phone after the reset.</p>' +
+        '  <button class="btn danger" id="reset-prod-btn">Reset for production…</button>' +
+        '</div>';
+
+      $('#reset-prod-btn').addEventListener('click', openResetModal);
+    }
+
+    function openResetModal() {
+      var modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML =
+        '<div class="modal-card">' +
+        '  <h3 style="color:var(--danger);">Reset for production</h3>' +
+        '  <p style="margin:0 0 8px;">This permanently wipes:</p>' +
+        '  <ul style="margin:0 0 12px 18px;line-height:1.6;">' +
+        '    <li>All <strong>sales</strong> rows</li>' +
+        '    <li>All <strong>shifts</strong> (open + closed)</li>' +
+        '    <li>All <strong>restock</strong> entries</li>' +
+        '  </ul>' +
+        '  <p style="margin:0 0 8px;">And resets:</p>' +
+        '  <ul style="margin:0 0 12px 18px;line-height:1.6;">' +
+        '    <li><strong>Inventory stock</strong> to 0 for every (store, item)</li>' +
+        '  </ul>' +
+        '  <p style="margin:0 0 8px;"><strong>Keeps</strong>: stores, items + prices, bundles, sellers, your password.</p>' +
+        '  <div class="row"><label>Type <code>RESET</code> to confirm</label>' +
+        '    <input type="text" id="reset-confirm" autocomplete="off" placeholder="RESET">' +
+        '  </div>' +
+        '  <div class="modal-actions">' +
+        '    <button class="btn secondary" data-modal-cancel>Cancel</button>' +
+        '    <button class="btn danger" data-modal-ok disabled>Reset</button>' +
+        '  </div>' +
+        '</div>';
+      document.body.appendChild(modal);
+
+      var input = modal.querySelector('#reset-confirm');
+      var okBtn = modal.querySelector('[data-modal-ok]');
+      input.addEventListener('input', function () {
+        okBtn.disabled = input.value.trim() !== 'RESET';
+      });
+
+      modal.querySelector('[data-modal-cancel]').addEventListener('click', function () { modal.remove(); });
+      okBtn.addEventListener('click', async function () {
+        okBtn.disabled = true;
+        okBtn.textContent = 'Wiping…';
+        try {
+          var resp = await srv('ui_resetForProduction', { confirm: 'RESET-FOR-PRODUCTION' });
+          modal.remove();
+          var w = resp.wiped || {};
+          toast(
+            'Reset complete · ' + (w.sales || 0) + ' sales, ' +
+            (w.shifts || 0) + ' shifts, ' + (w.restocks || 0) + ' restocks wiped · ' +
+            (w.inventory_rows_reset || 0) + ' inventory rows reset to 0',
+            'ok'
+          );
+          // Wipe in-memory caches so the next view reload reflects fresh server state.
+          state.menu = null;
+          state.sellers = null;
+          state.stores = null;
+          restockLogState = { rows: [], totals_by_item: [] };
+          showView('dashboard');
+        } catch (err) {
+          toast(err.message, 'err');
+          okBtn.disabled = false;
+          okBtn.textContent = 'Reset';
+        }
+      });
+      setTimeout(function () { input.focus(); }, 0);
     }
 
     // ---------- Boot ----------
