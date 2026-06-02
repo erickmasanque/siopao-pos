@@ -42,6 +42,7 @@ function ui_getInventory(params)  { return _adminCall_(getInventory, params); }
 function ui_getInventoryDetail(params) { return _adminCall_(getInventoryDetail, params); }
 function ui_listSellers()         { _adminGate_(); return _readSellersWithStats_(); }
 function ui_listStores()          { _adminGate_(); return _readStores_(); }
+function ui_getCatalog()          { _adminGate_(); return _readCatalog_(); }
 
 // ---------- Mutations ----------
 function ui_restock(params)          { return _adminCall_(restock, params); }
@@ -104,4 +105,35 @@ function _readStores_() {
   return readTable_(TABS.STORES).map(function (s) {
     return { store_id: s.store_id, name: s.name, active: Boolean(s.active) };
   });
+}
+
+/**
+ * Full catalog including INACTIVE items/bundles. The admin menu view
+ * needs this so an admin can see — and reactivate — items the seller
+ * frontend has been hiding. Public getMenu() filters to active only
+ * and is unsuitable for admin purposes.
+ */
+function _readCatalog_() {
+  return {
+    stores: _readStores_(),
+    items: readTable_(TABS.ITEMS).map(function (i) {
+      return {
+        item_id: i.item_id,
+        name: i.name,
+        retail_price: roundCentavo_(Number(i.retail_price) || 0),
+        category: i.category || '',
+        active: Boolean(i.active)
+      };
+    }),
+    bundles: readTable_(TABS.BUNDLES).map(function (b) {
+      return {
+        bundle_id: b.bundle_id,
+        name: b.name,
+        price: roundCentavo_(Number(b.price) || 0),
+        includes_siopao_qty: Number(b.includes_siopao_qty) || 0,
+        includes_gulaman_qty: Number(b.includes_gulaman_qty) || 0,
+        active: Boolean(b.active)
+      };
+    })
+  };
 }

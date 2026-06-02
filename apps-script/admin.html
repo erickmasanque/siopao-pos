@@ -692,38 +692,38 @@
 
     async function loadMenu() {
       try {
-        state.menu = await srv('ui_getMenu');
+        // Use catalog (includes inactive) so admin can reactivate items.
+        state.menu = await srv('ui_getCatalog');
       } catch (err) {
         $('#items-section').innerHTML = '<div class="empty">Failed: ' + esc(err.message) + '</div>';
         return;
       }
-      // ui_getMenu only returns active rows — we want all rows here. Re-fetch via
-      // a workaround: pull inactive items by reading the sheet directly is not
-      // exposed. For v1, only active rows are editable from this view; inactive
-      // items must be reactivated from the sheet directly. Mark this limitation.
       if (state.view !== 'menu') return;
       renderItemsSection();
       renderBundlesSection();
     }
 
     function renderItemsSection() {
-      var items = (state.menu && state.menu.items) || [];
+      var items = ((state.menu && state.menu.items) || []).slice().sort(function (a, b) {
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
       var html =
         '<div class="toolbar" style="margin-bottom:8px;">' +
         '  <h3 style="margin:0;">Items</h3>' +
         '  <button class="btn small" data-action="add-item">+ Add item</button>' +
         '</div>';
       if (items.length === 0) {
-        html += '<div class="empty">No active items.</div>';
+        html += '<div class="empty">No items yet.</div>';
       } else {
         html += '<table>' +
           '<thead><tr><th>ID</th><th>Name</th><th>Price</th><th>Category</th><th></th></tr></thead>' +
           '<tbody>' +
             items.map(function (i) {
               return (
-                '<tr>' +
+                '<tr class="' + (i.active ? '' : 'row-inactive') + '">' +
                 '<td><span class="sub">' + esc(i.item_id) + '</span></td>' +
-                '<td>' + esc(i.name) + '</td>' +
+                '<td>' + esc(i.name) + (i.active ? '' : ' <span class="badge warn">inactive</span>') + '</td>' +
                 '<td>' + fmtPeso(i.retail_price) + '</td>' +
                 '<td>' + esc(i.category || '—') + '</td>' +
                 '<td><button class="btn small secondary" data-action="edit-item" data-item-id="' + esc(i.item_id) + '">Edit</button></td>' +
@@ -740,23 +740,26 @@
     }
 
     function renderBundlesSection() {
-      var bundles = (state.menu && state.menu.bundles) || [];
+      var bundles = ((state.menu && state.menu.bundles) || []).slice().sort(function (a, b) {
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
       var html =
         '<div class="toolbar" style="margin-bottom:8px;">' +
         '  <h3 style="margin:0;">Bundles</h3>' +
         '  <button class="btn small" data-action="add-bundle">+ Add bundle</button>' +
         '</div>';
       if (bundles.length === 0) {
-        html += '<div class="empty">No active bundles.</div>';
+        html += '<div class="empty">No bundles yet.</div>';
       } else {
         html += '<table>' +
           '<thead><tr><th>ID</th><th>Name</th><th>Price</th><th>Siopao qty</th><th>Gulaman qty</th><th></th></tr></thead>' +
           '<tbody>' +
             bundles.map(function (b) {
               return (
-                '<tr>' +
+                '<tr class="' + (b.active ? '' : 'row-inactive') + '">' +
                 '<td><span class="sub">' + esc(b.bundle_id) + '</span></td>' +
-                '<td>' + esc(b.name) + '</td>' +
+                '<td>' + esc(b.name) + (b.active ? '' : ' <span class="badge warn">inactive</span>') + '</td>' +
                 '<td>' + fmtPeso(b.price) + '</td>' +
                 '<td>' + b.includes_siopao_qty + '</td>' +
                 '<td>' + b.includes_gulaman_qty + '</td>' +
@@ -789,7 +792,7 @@
         '  <div class="row"><label>Name</label><input type="text" id="m-name" value="' + esc(existing ? existing.name : '') + '"></div>' +
         '  <div class="row"><label>Retail price (₱)</label><input type="number" id="m-price" min="0" step="0.01" value="' + (existing ? existing.retail_price : '') + '"></div>' +
         '  <div class="row"><label>Category</label><input type="text" id="m-cat" value="' + esc(existing ? existing.category : '') + '" placeholder="e.g. siopao, drink"></div>' +
-        '  ' + (isNew ? '' : '<div class="row"><label>Active</label><label><input type="checkbox" id="m-active" checked> visible to sellers</label></div>') +
+        '  ' + (isNew ? '' : '<div class="row"><label>Active</label><label><input type="checkbox" id="m-active"' + (existing.active ? ' checked' : '') + '> visible to sellers</label></div>') +
         '  <div class="modal-actions">' +
         '    <button class="btn secondary" data-modal-cancel>Cancel</button>' +
         '    <button class="btn" data-modal-ok>' + (isNew ? 'Add' : 'Save') + '</button>' +
@@ -1329,7 +1332,7 @@
         '  <div class="row"><label>Price (₱)</label><input type="number" id="m-price" min="0" step="0.01" value="' + (existing ? existing.price : '') + '"></div>' +
         '  <div class="row"><label>Siopao quantity included</label><input type="number" id="m-siopao" min="0" step="1" value="' + (existing ? existing.includes_siopao_qty : 0) + '"></div>' +
         '  <div class="row"><label>Gulaman quantity included</label><input type="number" id="m-gulaman" min="0" step="1" value="' + (existing ? existing.includes_gulaman_qty : 0) + '"></div>' +
-        '  ' + (isNew ? '' : '<div class="row"><label>Active</label><label><input type="checkbox" id="m-active" checked> visible to sellers</label></div>') +
+        '  ' + (isNew ? '' : '<div class="row"><label>Active</label><label><input type="checkbox" id="m-active"' + (existing.active ? ' checked' : '') + '> visible to sellers</label></div>') +
         '  <div class="modal-actions">' +
         '    <button class="btn secondary" data-modal-cancel>Cancel</button>' +
         '    <button class="btn" data-modal-ok>' + (isNew ? 'Add' : 'Save') + '</button>' +
