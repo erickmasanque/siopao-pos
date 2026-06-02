@@ -222,6 +222,36 @@
     .stock-cell.out { color: var(--danger); }
     .row-inactive { opacity: 0.55; }
 
+    /* ---------- Filter bar ---------- */
+    .filter-bar {
+      background: var(--surface); padding: 12px 14px;
+      border-radius: var(--radius); box-shadow: var(--shadow);
+      margin-bottom: 14px;
+      display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end;
+    }
+    .filter-bar .field { display: flex; flex-direction: column; gap: 4px; }
+    .filter-bar .field label {
+      font-size: 11px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .filter-bar .actions { margin-left: auto; display: flex; gap: 8px; }
+
+    .pill-group { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .pill-group button {
+      padding: 7px 10px; font-size: 13px; background: var(--surface); color: var(--text);
+    }
+    .pill-group button.active { background: var(--primary); color: white; }
+
+    .row-voided { background: #fdf6f5; }
+    .row-voided .items, .row-voided .total { text-decoration: line-through; color: var(--muted); }
+
+    .row-variance-bad { background: #fff7f6; }
+    .var-good { color: var(--accent); font-weight: 600; }
+    .var-bad  { color: var(--danger);  font-weight: 600; }
+    td.cell-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .results-count { color: var(--muted); font-size: 13px; padding: 0 4px; }
+
     /* ---------- Toast ---------- */
     .toast {
       position: fixed; bottom: 20px; left: 50%;
@@ -315,8 +345,8 @@
       inventory: { title: 'Inventory',     render: renderInventory },
       menu:      { title: 'Menu & Prices', render: renderMenu },
       sellers:   { title: 'Sellers',       render: renderSellers },
-      sales:     { title: 'Sales Log',     render: renderStub },
-      shifts:    { title: 'Shift History', render: renderStub }
+      sales:     { title: 'Sales Log',     render: renderSalesLog },
+      shifts:    { title: 'Shift History', render: renderShiftHistory }
     };
 
     function showView(name) {
@@ -957,6 +987,329 @@
         } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
       });
       setTimeout(function () { modal.querySelector('#m-pin').focus(); }, 0);
+    }
+
+    // ---------- Shared: date helpers for filters ----------
+    function todayIso() {
+      var d = new Date();
+      return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    }
+    function isoToStart(s) { return s ? new Date(s + 'T00:00:00').toISOString() : ''; }
+    function isoToEnd(s)   { return s ? new Date(s + 'T23:59:59').toISOString() : ''; }
+
+    /** Build a filter bar with from/to dates, optional store/seller/payment/voided controls. */
+    function renderFilterBar(opts) {
+      var stores  = ((state.stores  || []).slice()).sort(function (a, b) { return a.name.localeCompare(b.name); });
+      var sellers = ((state.sellers || []).slice()).sort(function (a, b) { return a.name.localeCompare(b.name); });
+      var f = opts.values || {};
+      var html =
+        '<div class="filter-bar">' +
+        '  <div class="field"><label>From</label><input type="date" id="f-from" value="' + esc(f.from || todayIso()) + '"></div>' +
+        '  <div class="field"><label>To</label><input type="date" id="f-to" value="' + esc(f.to || todayIso()) + '"></div>';
+      if (opts.includeStore) {
+        html += '  <div class="field"><label>Store</label><select id="f-store"><option value="">All</option>' +
+          stores.map(function (s) { return '<option value="' + esc(s.store_id) + '"' + (f.store_id === s.store_id ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('') +
+          '</select></div>';
+      }
+      if (opts.includeSeller) {
+        html += '  <div class="field"><label>Seller</label><select id="f-seller"><option value="">All</option>' +
+          sellers.map(function (s) { return '<option value="' + esc(s.seller_id) + '"' + (f.seller_id === s.seller_id ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('') +
+          '</select></div>';
+      }
+      if (opts.includePayment) {
+        html += '  <div class="field"><label>Payment</label><div class="pill-group" id="f-pay">' +
+          ['', 'cash', 'gcash'].map(function (v) {
+            var label = v === '' ? 'All' : (v.charAt(0).toUpperCase() + v.slice(1));
+            return '<button data-pay="' + esc(v) + '"' + (((f.payment_method || '') === v) ? ' class="active"' : '') + '>' + label + '</button>';
+          }).join('') + '</div></div>';
+      }
+      if (opts.includeVoided) {
+        html += '  <div class="field"><label>Voided</label><div class="pill-group" id="f-voided">' +
+          [['', 'All'], ['false', 'No'], ['true', 'Yes']].map(function (pair) {
+            var v = pair[0]; var label = pair[1];
+            var current = f.voided == null ? '' : String(f.voided);
+            return '<button data-voided="' + esc(v) + '"' + (current === v ? ' class="active"' : '') + '>' + label + '</button>';
+          }).join('') + '</div></div>';
+      }
+      html +=
+        '  <div class="actions">' +
+        '    <button class="btn small secondary" id="f-apply">Apply</button>' +
+        '  </div>' +
+        '</div>';
+      return html;
+    }
+
+    /** Read filter bar values into a params object suited for getSalesLog / getShiftHistory. */
+    function readFilters(opts) {
+      var out = {
+        from: isoToStart(document.getElementById('f-from').value),
+        to:   isoToEnd(document.getElementById('f-to').value)
+      };
+      if (opts.includeStore)   out.store_id  = document.getElementById('f-store').value || undefined;
+      if (opts.includeSeller)  out.seller_id = document.getElementById('f-seller').value || undefined;
+      if (opts.includePayment) {
+        var pBtn = document.querySelector('#f-pay button.active');
+        var pv = pBtn ? pBtn.dataset.pay : '';
+        if (pv) out.payment_method = pv;
+      }
+      if (opts.includeVoided) {
+        var vBtn = document.querySelector('#f-voided button.active');
+        var vv = vBtn ? vBtn.dataset.voided : '';
+        if (vv === 'true')  out.voided = true;
+        if (vv === 'false') out.voided = false;
+      }
+      return out;
+    }
+
+    /** Wire pill-group buttons so clicking toggles the active state. */
+    function wirePillGroup(id) {
+      var group = document.getElementById(id);
+      if (!group) return;
+      group.querySelectorAll('button').forEach(function (b) {
+        b.addEventListener('click', function () {
+          group.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+          b.classList.add('active');
+        });
+      });
+    }
+
+    async function ensureFilterCaches() {
+      if (!state.menu)    state.menu    = await srv('ui_getMenu');
+      if (!state.stores)  state.stores  = await srv('ui_listStores');
+      if (!state.sellers) state.sellers = await srv('ui_listSellers');
+    }
+
+    function summarizeItems(json) {
+      try {
+        var items = JSON.parse(json || '[]');
+        var nameMap = {};
+        ((state.menu || {}).items   || []).forEach(function (i) { nameMap[i.item_id]   = i.name; });
+        ((state.menu || {}).bundles || []).forEach(function (b) { nameMap[b.bundle_id] = b.name; });
+        return items.map(function (l) {
+          var base = (l.qty || 1) + '× ' + (nameMap[l.id] || l.id);
+          if (l.type === 'bundle' && l.chosen_siopao) {
+            base += ' (' + (nameMap[l.chosen_siopao] || l.chosen_siopao) + ')';
+          }
+          return base;
+        }).join(', ');
+      } catch (e) { return '—'; }
+    }
+
+    function fmtDateTime(t) {
+      if (!t) return '—';
+      var d = new Date(t);
+      return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + fmtTime(t);
+    }
+
+    // ---------- Sales Log ----------
+    var salesLogState = { rows: [] };
+
+    async function renderSalesLog() {
+      $('#content').innerHTML = '<div class="empty">Loading…</div>';
+      await ensureFilterCaches();
+      if (state.view !== 'sales') return;
+      $('#content').innerHTML =
+        '<h2 class="section-title">Sales Log</h2>' +
+        renderFilterBar({ includeStore: true, includeSeller: true, includePayment: true, includeVoided: true }) +
+        '<div id="sales-meta" class="results-count"></div>' +
+        '<div id="sales-body"><div class="empty">Click Apply to load.</div></div>';
+
+      wirePillGroup('f-pay');
+      wirePillGroup('f-voided');
+      $('#f-apply').addEventListener('click', loadSalesLog);
+      await loadSalesLog();
+    }
+
+    async function loadSalesLog() {
+      var f = readFilters({ includeStore: true, includeSeller: true, includePayment: true, includeVoided: true });
+      $('#sales-body').innerHTML = '<div class="empty">Loading…</div>';
+      try {
+        salesLogState.rows = await srv('ui_getSalesLog', f);
+        if (state.view !== 'sales') return;
+        renderSalesTable();
+      } catch (err) {
+        $('#sales-body').innerHTML = '<div class="empty">Failed: ' + esc(err.message) + '</div>';
+      }
+    }
+
+    function renderSalesTable() {
+      var rows = salesLogState.rows;
+      var totals = rows.reduce(function (acc, r) {
+        if (!r.voided) {
+          if (r.payment_method === 'cash')  acc.cash  += Number(r.subtotal) || 0;
+          if (r.payment_method === 'gcash') acc.gcash += Number(r.subtotal) || 0;
+          acc.count += 1;
+        }
+        return acc;
+      }, { cash: 0, gcash: 0, count: 0 });
+
+      $('#sales-meta').innerHTML =
+        rows.length + ' rows · ' + totals.count + ' non-voided · ' +
+        'Cash ' + fmtPeso(totals.cash) + ' · GCash ' + fmtPeso(totals.gcash);
+
+      if (rows.length === 0) {
+        $('#sales-body').innerHTML = '<div class="empty">No sales match these filters.</div>';
+        return;
+      }
+
+      $('#sales-body').innerHTML =
+        '<table>' +
+        '  <thead><tr>' +
+        '    <th>Time</th><th>Store</th><th>Seller</th><th>Items</th>' +
+        '    <th class="cell-num">Total</th><th>Payment</th><th class="cell-num">Cash recv.</th><th class="cell-num">Change</th>' +
+        '    <th></th>' +
+        '  </tr></thead>' +
+        '  <tbody>' +
+          rows.map(function (r) {
+            return (
+              '<tr class="' + (r.voided ? 'row-voided' : '') + '">' +
+              '<td>' + esc(fmtDateTime(r.timestamp)) + '</td>' +
+              '<td>' + esc(r.store_name) + '</td>' +
+              '<td>' + esc(r.seller_name) + '</td>' +
+              '<td class="items">' + esc(summarizeItems(r.items_json)) + '</td>' +
+              '<td class="cell-num total">' + fmtPeso(r.subtotal) + '</td>' +
+              '<td>' + esc(r.payment_method) + (r.voided ? ' <span class="badge danger">voided</span>' : '') + '</td>' +
+              '<td class="cell-num">' + (r.cash_received == null ? '—' : fmtPeso(r.cash_received)) + '</td>' +
+              '<td class="cell-num">' + (r.change_given == null ? '—' : fmtPeso(r.change_given)) + '</td>' +
+              '<td>' +
+                (r.voided
+                  ? '<span class="sub" title="' + esc(r.void_reason || '') + '\nby ' + esc(r.voided_by || '') + '">voided</span>'
+                  : '<button class="btn small danger" data-action="void" data-sale-id="' + esc(r.sale_id) + '">Void</button>') +
+              '</td>' +
+              '</tr>'
+            );
+          }).join('') +
+        '  </tbody></table>';
+
+      document.querySelectorAll('[data-action="void"]').forEach(function (b) {
+        b.addEventListener('click', function () { openVoidModal(b.dataset.saleId); });
+      });
+    }
+
+    function openVoidModal(sale_id) {
+      var modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML =
+        '<div class="modal-card">' +
+        '  <h3>Void sale</h3>' +
+        '  <div class="row"><label>Reason (required)</label><input type="text" id="m-reason" placeholder="e.g. wrong order, customer returned"></div>' +
+        '  <div class="row"><span class="sub">Inventory will be restored. The sale row stays for the audit trail. ' +
+        '  If the shift was already closed, its stored totals are NOT rewritten — the void will be flagged on the shift detail instead.</span></div>' +
+        '  <div class="modal-actions">' +
+        '    <button class="btn secondary" data-modal-cancel>Cancel</button>' +
+        '    <button class="btn danger" data-modal-ok>Void sale</button>' +
+        '  </div>' +
+        '</div>';
+      document.body.appendChild(modal);
+      modal.querySelector('[data-modal-cancel]').addEventListener('click', function () { modal.remove(); });
+      modal.querySelector('[data-modal-ok]').addEventListener('click', async function () {
+        var btn = modal.querySelector('[data-modal-ok]');
+        var reason = modal.querySelector('#m-reason').value.trim();
+        if (!reason) { toast('Reason required', 'err'); return; }
+        btn.disabled = true;
+        try {
+          await srv('ui_voidSale', { sale_id: sale_id, reason: reason });
+          modal.remove();
+          toast('Sale voided', 'ok');
+          await loadSalesLog();
+        } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
+      });
+      setTimeout(function () { modal.querySelector('#m-reason').focus(); }, 0);
+    }
+
+    // ---------- Shift History ----------
+    var shiftHistoryState = { rows: [] };
+    var VARIANCE_THRESHOLD = 20;
+
+    async function renderShiftHistory() {
+      $('#content').innerHTML = '<div class="empty">Loading…</div>';
+      await ensureFilterCaches();
+      if (state.view !== 'shifts') return;
+      $('#content').innerHTML =
+        '<h2 class="section-title">Shift History</h2>' +
+        renderFilterBar({ includeStore: true, includeSeller: true }) +
+        '<div id="shift-meta" class="results-count"></div>' +
+        '<div id="shift-body"><div class="empty">Click Apply to load.</div></div>';
+
+      $('#f-apply').addEventListener('click', loadShiftHistory);
+      await loadShiftHistory();
+    }
+
+    async function loadShiftHistory() {
+      var f = readFilters({ includeStore: true, includeSeller: true });
+      $('#shift-body').innerHTML = '<div class="empty">Loading…</div>';
+      try {
+        shiftHistoryState.rows = await srv('ui_getShiftHistory', f);
+        if (state.view !== 'shifts') return;
+        renderShiftTable();
+      } catch (err) {
+        $('#shift-body').innerHTML = '<div class="empty">Failed: ' + esc(err.message) + '</div>';
+      }
+    }
+
+    function varianceCell(v) {
+      if (v == null) return '<span class="sub">—</span>';
+      var cls = Math.abs(v) > VARIANCE_THRESHOLD ? 'var-bad' : (Math.abs(v) < 0.005 ? 'var-good' : '');
+      return '<span class="' + cls + '">' + signed(v) + '</span>';
+    }
+
+    function renderShiftTable() {
+      var rows = shiftHistoryState.rows;
+      $('#shift-meta').innerHTML = rows.length + ' shifts';
+      if (rows.length === 0) {
+        $('#shift-body').innerHTML = '<div class="empty">No shifts match these filters.</div>';
+        return;
+      }
+
+      $('#shift-body').innerHTML =
+        '<table>' +
+        '  <thead><tr>' +
+        '    <th>Start</th><th>End</th><th>Store</th><th>Seller</th>' +
+        '    <th class="cell-num">Expected cash</th><th class="cell-num">Counted</th><th class="cell-num">Δ</th>' +
+        '    <th class="cell-num">Expected GCash</th><th class="cell-num">Counted</th><th class="cell-num">Δ</th>' +
+        '    <th></th>' +
+        '  </tr></thead>' +
+        '  <tbody>' +
+          rows.map(function (r) {
+            var anyBad = (r.variance_cash != null && Math.abs(r.variance_cash) > VARIANCE_THRESHOLD)
+                      || (r.variance_gcash != null && Math.abs(r.variance_gcash) > VARIANCE_THRESHOLD);
+            var rowClass = anyBad ? 'row-variance-bad' : (r.end_time ? '' : 'row-inactive');
+            var flags = '';
+            if (!r.end_time) flags += ' <span class="badge ok">open</span>';
+            if (r.post_close_voids > 0) flags += ' <span class="badge warn" title="' + r.post_close_voids + ' sale(s) voided after this shift was closed">' + r.post_close_voids + ' post-close void(s)</span>';
+            return (
+              '<tr class="' + rowClass + '">' +
+              '<td>' + esc(fmtDateTime(r.start_time)) + '</td>' +
+              '<td>' + esc(r.end_time ? fmtDateTime(r.end_time) : '—') + flags + '</td>' +
+              '<td>' + esc(r.store_name) + '</td>' +
+              '<td>' + esc(r.seller_name) + '</td>' +
+              '<td class="cell-num">' + (r.expected_cash == null ? '—' : fmtPeso(r.expected_cash)) + '</td>' +
+              '<td class="cell-num">' + (r.counted_cash  == null ? '—' : fmtPeso(r.counted_cash))  + '</td>' +
+              '<td class="cell-num">' + varianceCell(r.variance_cash) + '</td>' +
+              '<td class="cell-num">' + (r.expected_gcash == null ? '—' : fmtPeso(r.expected_gcash)) + '</td>' +
+              '<td class="cell-num">' + (r.counted_gcash  == null ? '—' : fmtPeso(r.counted_gcash))  + '</td>' +
+              '<td class="cell-num">' + varianceCell(r.variance_gcash) + '</td>' +
+              '<td>' + (r.end_time
+                  ? (r.notes ? '<span class="sub" title="' + esc(r.notes) + '">notes</span>' : '')
+                  : '<button class="btn small secondary" data-action="force-close-from-history" data-shift-id="' + esc(r.shift_id) + '" data-seller="' + esc(r.seller_name) + '">Force close</button>') +
+              '</td>' +
+              '</tr>'
+            );
+          }).join('') +
+        '  </tbody></table>';
+
+      document.querySelectorAll('[data-action="force-close-from-history"]').forEach(function (b) {
+        b.addEventListener('click', async function () {
+          var ok = confirm('Force-close ' + b.dataset.seller + "'s shift?\n\nNo counted cash/GCash will be recorded.");
+          if (!ok) return;
+          b.disabled = true;
+          try {
+            await srv('ui_forceCloseShift', { shift_id: b.dataset.shiftId });
+            toast('Shift force-closed', 'ok');
+            await loadShiftHistory();
+          } catch (err) { toast(err.message, 'err'); b.disabled = false; }
+        });
+      });
     }
 
     function openBundleModal(bundle_id) {
