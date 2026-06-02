@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Siopao POS app icon. 512×512 with maskable safe zone (80% center).
+     Steam wisp + bun, in the project's terracotta + cream palette. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#c44b2f"/>
+  <circle cx="256" cy="300" r="142" fill="#fff8f0"/>
+  <path d="M152 210 Q256 110 360 210" fill="none" stroke="#fff8f0" stroke-width="22" stroke-linecap="round"/>
+  <path d="M196 240 Q256 200 316 240" fill="none" stroke="#c44b2f" stroke-width="6" stroke-linecap="round" opacity="0.35"/>
+</svg>
