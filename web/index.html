@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#c44b2f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='34' r='22' fill='%23fff8f0' stroke='%23c44b2f' stroke-width='3'/%3E%3Cpath d='M14 28 Q32 14 50 28' fill='none' stroke='%23c44b2f' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <title>Siopao POS</title>
+</head>
+<body>
+
+  <!-- Connection indicator pinned top-right, visible across all views. -->
+  <div id="conn-dot" class="conn-dot" title="Connection status"></div>
+
+  <!-- Login: store picker -->
+  <section id="view-store" class="view">
+    <header class="hero">
+      <h1>Siopao POS</h1>
+      <p>Pick your store</p>
+    </header>
+    <div id="store-buttons" class="store-buttons"></div>
+  </section>
+
+  <!-- Login: PIN pad -->
+  <section id="view-pin" class="view hidden">
+    <header class="topbar">
+      <button class="link" data-action="back-to-stores">← Back</button>
+      <span id="pin-store-name" class="topbar-title"></span>
+      <span></span>
+    </header>
+    <div class="pin-wrap">
+      <p class="pin-label">Enter PIN</p>
+      <div id="pin-display" class="pin-display">
+        <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
+      </div>
+      <p id="pin-error" class="pin-error">&nbsp;</p>
+      <div class="numpad">
+        <button class="num" data-digit="1">1</button>
+        <button class="num" data-digit="2">2</button>
+        <button class="num" data-digit="3">3</button>
+        <button class="num" data-digit="4">4</button>
+        <button class="num" data-digit="5">5</button>
+        <button class="num" data-digit="6">6</button>
+        <button class="num" data-digit="7">7</button>
+        <button class="num" data-digit="8">8</button>
+        <button class="num" data-digit="9">9</button>
+        <button class="num num-aux" data-action="pin-clear">C</button>
+        <button class="num" data-digit="0">0</button>
+        <button class="num num-aux" data-action="pin-back">⌫</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Sales: tile grid + cart + payment -->
+  <section id="view-sales" class="view hidden">
+    <header class="topbar topbar-sales">
+      <div class="topbar-left">
+        <div id="sales-store" class="sm"></div>
+        <div id="sales-seller" class="lg"></div>
+      </div>
+      <button class="btn-end" data-action="open-close-shift">End Shift</button>
+    </header>
+
+    <div id="tile-grid" class="tile-grid"></div>
+
+    <div class="cart-panel">
+      <ul id="cart-lines" class="cart-lines"></ul>
+      <div class="cart-foot">
+        <div class="subtotal">
+          <span>Subtotal</span>
+          <span id="cart-subtotal" class="subtotal-val">₱0.00</span>
+        </div>
+        <div class="pay-row">
+          <button class="pay-btn" data-pay="cash">Cash</button>
+          <button class="pay-btn" data-pay="gcash">GCash</button>
+        </div>
+        <div id="cash-block" class="cash-block hidden">
+          <div class="cash-input-row">
+            <span>Cash received</span>
+            <span id="cash-received" class="cash-received">₱0</span>
+          </div>
+          <div class="change-row">
+            <span>Change</span>
+            <span id="change-due" class="change-due">₱0.00</span>
+          </div>
+          <div class="numpad numpad-small">
+            <button class="num" data-cashdigit="1">1</button>
+            <button class="num" data-cashdigit="2">2</button>
+            <button class="num" data-cashdigit="3">3</button>
+            <button class="num" data-cashdigit="4">4</button>
+            <button class="num" data-cashdigit="5">5</button>
+            <button class="num" data-cashdigit="6">6</button>
+            <button class="num" data-cashdigit="7">7</button>
+            <button class="num" data-cashdigit="8">8</button>
+            <button class="num" data-cashdigit="9">9</button>
+            <button class="num num-aux" data-action="cash-clear">C</button>
+            <button class="num" data-cashdigit="0">0</button>
+            <button class="num num-aux" data-action="cash-back">⌫</button>
+          </div>
+        </div>
+        <button id="confirm-sale" class="btn-confirm" disabled>Confirm Sale</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Close shift -->
+  <section id="view-close" class="view hidden">
+    <header class="topbar">
+      <button class="link" data-action="cancel-close">← Cancel</button>
+      <span class="topbar-title">End Shift</span>
+      <span></span>
+    </header>
+    <div class="close-wrap">
+      <div class="close-summary">
+        <div><span>Duration</span><strong id="close-duration">—</strong></div>
+        <div><span>Sales</span><strong id="close-count">0</strong></div>
+      </div>
+
+      <div class="close-section">
+        <div class="close-section-head">CASH</div>
+        <div class="kv"><span>Expected</span><strong id="exp-cash">₱0.00</strong></div>
+        <div class="kv">
+          <span>Counted</span>
+          <button class="counted-input" data-counted="cash">
+            <span id="counted-cash">₱0</span>
+          </button>
+        </div>
+        <div class="kv"><span>Variance</span><strong id="var-cash" class="var">—</strong></div>
+      </div>
+
+      <div class="close-section">
+        <div class="close-section-head">GCASH</div>
+        <div class="kv"><span>Expected</span><strong id="exp-gcash">₱0.00</strong></div>
+        <div class="kv">
+          <span>Counted</span>
+          <button class="counted-input" data-counted="gcash">
+            <span id="counted-gcash">₱0</span>
+          </button>
+        </div>
+        <div class="kv"><span>Variance</span><strong id="var-gcash" class="var">—</strong></div>
+      </div>
+
+      <label class="notes-wrap">
+        Notes (optional)
+        <textarea id="close-notes" rows="2" placeholder="Anything to flag?"></textarea>
+      </label>
+
+      <button id="submit-close" class="btn-confirm">Submit Close</button>
+    </div>
+  </section>
+
+  <!-- Modal: bundle flavor picker -->
+  <div id="flavor-modal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="flavor-title">Which flavor?</h2>
+      <div id="flavor-options" class="flavor-options"></div>
+      <button class="link" data-action="cancel-flavor">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Modal: numeric input pad (used by close-shift counted fields) -->
+  <div id="numpad-modal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="numpad-title">Enter amount</h2>
+      <div id="numpad-value" class="numpad-modal-value">₱0</div>
+      <div class="numpad">
+        <button class="num" data-modaldigit="1">1</button>
+        <button class="num" data-modaldigit="2">2</button>
+        <button class="num" data-modaldigit="3">3</button>
+        <button class="num" data-modaldigit="4">4</button>
+        <button class="num" data-modaldigit="5">5</button>
+        <button class="num" data-modaldigit="6">6</button>
+        <button class="num" data-modaldigit="7">7</button>
+        <button class="num" data-modaldigit="8">8</button>
+        <button class="num" data-modaldigit="9">9</button>
+        <button class="num num-aux" data-action="numpad-clear">C</button>
+        <button class="num" data-modaldigit="0">0</button>
+        <button class="num num-aux" data-action="numpad-back">⌫</button>
+      </div>
+      <div class="modal-actions">
+        <button class="link" data-action="numpad-cancel">Cancel</button>
+        <button class="btn-confirm small" data-action="numpad-ok">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
