@@ -1,0 +1,34 @@
+name: Deploy seller PWA to GitHub Pages
+
+# Publishes the /web/ directory to GitHub Pages on every push to main.
+# Required because Pages' "Deploy from a branch" only allows /(root) or
+# /docs; an Actions deploy lets us keep the web/ folder name semantic.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./web
+      - id: deployment
+        uses: actions/deploy-pages@v4
