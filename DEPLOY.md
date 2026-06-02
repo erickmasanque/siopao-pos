@@ -51,12 +51,12 @@ git push -u origin main
 
 1. Repo on github.com → **Settings → Pages**.
 2. **Source: Deploy from a branch**.
-3. Branch: `main`, Folder: `/web`.
+3. Branch: `main`, Folder: `/docs`.
 4. Save. After ~1 minute the URL appears: `https://<username>.github.io/siopao-pos/`.
 
 ### Make sure `API_URL` in app.js matches your deployment
 
-Open [web/app.js](web/app.js) — line 11 is `const API_URL = '...'`. If you redeployed in a way that changed the URL (only happens if you used **New deployment** instead of **New version**), update this string, commit, and push.
+Open [docs/app.js](docs/app.js) — near the top is `const API_URL = '...'`. If you redeployed in a way that changed the URL (only happens if you used **New deployment** instead of **New version**), update this string, commit, and push.
 
 ## 3. Install on phone (one per store)
 

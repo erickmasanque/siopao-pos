@@ -63,7 +63,7 @@ siopao-pos/
 │   ├── Inventory.gs
 │   ├── Admin.gs
 │   └── appsscript.json
-├── web/                # Frontend deployed to GitHub Pages
+├── docs/               # Frontend deployed to GitHub Pages (named /docs so Pages can serve it directly)
 │   ├── index.html
 │   ├── app.js
 │   ├── styles.css
