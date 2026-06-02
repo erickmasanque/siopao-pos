@@ -73,8 +73,11 @@ iOS doesn't honor `beforeinstallprompt`. Use the manual flow:
 
 ## 4. Admin app (sister)
 
-URL: same as the backend `/exec` but with `?page=admin`. Example:
-`https://script.google.com/macros/s/.../exec?page=admin`
+URL: `https://<username>.github.io/siopao-pos/admin.html` — that's a tiny redirect page on the same host as the seller PWA that forwards to the actual admin app on Apps Script. Bookmarkable and easy to remember.
+
+(The underlying admin app is served by Apps Script at `…/exec?page=admin` — it has to live there because `Session.getActiveUser()` / `google.script.run` only work inside Apps Script's own iframe. The redirect just hides that detail.)
+
+If you ever redeploy with a **new** URL (you used "New deployment" instead of "New version"), update [docs/admin.html](docs/admin.html) to point to the new `/exec` URL and push.
 
 The login form takes the username + password you set with `setupAdminPassword_dev`. No Google sign-in required — anyone with the URL + credentials can access. Credentials are saved in the browser's local storage so subsequent visits skip the login form. The **Log out** button in the top-right clears them.
 
