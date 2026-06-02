@@ -14,10 +14,15 @@ The project has two halves: an **Apps Script backend** bound to a Google Sheet, 
 4. **For the HTML file** [apps-script/admin.html](apps-script/admin.html): **+ → HTML** → name it `admin` → paste contents.
 5. **For `appsscript.json`:** click the gear ⚙ (**Project Settings**) → tick **"Show 'appsscript.json' manifest file in editor"** → back to **Editor**, open `appsscript.json` → replace with [apps-script/appsscript.json](apps-script/appsscript.json).
 6. Save everything (Ctrl+S).
-7. **Set Script Properties:** gear ⚙ → **Script Properties → Add script property:**
-   - Key: `ADMIN_EMAILS`
-   - Value: your sister's Gmail address, lowercased (e.g. `jane.delacruz@gmail.com`). For multiple admins, comma-separate: `jane@gmail.com,maria@gmail.com`.
-8. **Run setupWorkbook** — function dropdown → `setupWorkbook` → **Run**. Approve permissions on the prompt (it'll ask for Sheets access). This creates the 8 tabs with seed data.
+7. **Run setupWorkbook** — function dropdown → `setupWorkbook` → **Run**. Approve permissions on the prompt (it'll ask for Sheets access). This creates the 8 tabs with seed data.
+8. **Set the admin password** — open `Bootstrap.gs` in the editor and find `setupAdminPassword_dev`. Edit the two constants near the top:
+   ```js
+   var USERNAME = 'admin';           // or whatever you want — sister types this on the login form
+   var PASSWORD = 'pick-something';  // strong password, you'll log in with this
+   ```
+   Save → function dropdown → `setupAdminPassword_dev` → **Run**. This writes `ADMIN_USERNAME` / `ADMIN_PASS_HASH` / `ADMIN_PASS_SALT` into Script Properties. **Clear the editor logs afterward** so the plaintext password doesn't linger there.
+
+   You can re-run this any time to change the password. (Don't put the new password into a commit — it lives only inside the editor.)
 
 ### Deploy the web app
 
@@ -71,15 +76,14 @@ iOS doesn't honor `beforeinstallprompt`. Use the manual flow:
 URL: same as the backend `/exec` but with `?page=admin`. Example:
 `https://script.google.com/macros/s/.../exec?page=admin`
 
-Requirements:
-- Open in a browser tab where your sister is signed in to the Google account that **owns** the Apps Script (the same account in `ADMIN_EMAILS`).
-- Personal-Gmail caveat: `Session.getActiveUser().getEmail()` only returns the email when the viewer IS the script owner. If a non-owner admin needs access, the account ownership has to be transferred or a Workspace account used.
+The login form takes the username + password you set with `setupAdminPassword_dev`. No Google sign-in required — anyone with the URL + credentials can access. Credentials are saved in the browser's local storage so subsequent visits skip the login form. The **Log out** button in the top-right clears them.
 
 ### First-day setup via admin
 
-1. **Sellers tab → + Add seller** — name, store, 4-digit PIN. Repeat for each real seller.
-2. **Inventory tab** — restock each item per store to whatever you actually have on hand.
-3. **Menu & Prices** — adjust prices if the seed values aren't current.
+1. Open the admin URL → log in with the credentials you set in step 1.8.
+2. **Sellers tab → + Add seller** — name, store, 4-digit PIN. Repeat for each real seller.
+3. **Inventory tab** — restock each item per store to whatever you actually have on hand.
+4. **Menu & Prices** — adjust prices if the seed values aren't current.
 
 ## 5. End-to-end smoke test on real device
 
@@ -96,9 +100,9 @@ Requirements:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Admin page shows "no email detected" | Not signed in to Google in this browser | Sign in to the script-owner account, refresh |
-| Admin page shows "ADMIN_EMAILS is empty" | Script Property not set | Settings → Script Properties → add `ADMIN_EMAILS` |
-| Admin page shows "not in allowlist" | Wrong email or wrong account | Add this email to ADMIN_EMAILS, or switch accounts |
+| Admin page shows "credentials not configured" | `setupAdminPassword_dev` never ran (or Script Properties got wiped) | Re-run `setupAdminPassword_dev` from the Apps Script editor |
+| Admin login shows "Invalid admin credentials" | Wrong username or password typed (or the password was changed since the browser stored it) | Re-enter the current credentials; the new login replaces the saved ones |
+| Admin: forgot the password | Recovery path | Edit `setupAdminPassword_dev` constants in the editor → Run again — overwrites with the new password |
 | Seller login takes 10+ seconds | Cold-start of Apps Script instance after >6 min idle | Normal; subsequent logins are 2-3s. The pre-warm on store-tap mitigates. |
 | `Unknown method: X` on a call | Stale deployment | Manage deployments → New version |
 | Sales not appearing in sheet | Offline queue not synced | Connection dot should be green; tap it to force sync |

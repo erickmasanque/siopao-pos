@@ -91,3 +91,29 @@ function removeDefaultSheetIfEmpty_(ss) {
     ss.deleteSheet(def);
   }
 }
+
+/**
+ * One-time bootstrap: write the admin username + password hash into
+ * Script Properties. Edit USERNAME / PASSWORD below, then Run.
+ *
+ * Re-run any time to change the password. The function name carries _dev
+ * because in a hardened deploy you'd remove it after first use — it
+ * exists only because the admin UI itself needs valid credentials before
+ * it can change them.
+ */
+function setupAdminPassword_dev() {
+  var USERNAME = 'admin';        // change before running if you want
+  var PASSWORD = 'changeme123';  // ALWAYS change before running
+
+  if (!PASSWORD || PASSWORD === 'changeme123') {
+    throw new Error('Edit PASSWORD inside setupAdminPassword_dev to a real value before running.');
+  }
+
+  var salt = generateSalt_();
+  var hash = hashPin_(PASSWORD, salt);
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('ADMIN_USERNAME', USERNAME);
+  props.setProperty('ADMIN_PASS_HASH', hash);
+  props.setProperty('ADMIN_PASS_SALT', salt);
+  Logger.log('Admin credentials saved. username=' + USERNAME + '. The hash & salt are stored in Script Properties; clear the editor logs so the plaintext password does not linger.');
+}

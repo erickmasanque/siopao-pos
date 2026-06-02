@@ -134,12 +134,41 @@ function loginAndStartShift(params) {
   });
 }
 
-function requireAdmin_() {
-  var email = (Session.getActiveUser().getEmail() || '').toLowerCase();
-  var raw = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || '';
-  var allow = raw.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
-  if (!email || allow.indexOf(email) < 0) {
-    throw new Error('Admin access required');
+/**
+ * Verify admin credentials against the hash stored in Script Properties.
+ *
+ * `auth` shape from the admin frontend: { username, password }.
+ * Returns the username on success (used as the audit-field stamp value,
+ * e.g. voided_by / added_by). Throws on any failure.
+ *
+ * Why password instead of Google identity: Apps Script's
+ * Session.getActiveUser().getEmail() only populates when the page viewer
+ * IS the script owner on personal Gmail accounts. That couldn't
+ * accommodate a non-owner admin. A shared admin password is simpler for
+ * v1 single-admin and lets us hand the URL to anyone trusted.
+ *
+ * Bootstrap: run `setupAdminPassword_dev` once from the Apps Script editor.
+ */
+function requireAdmin_(auth) {
+  if (!auth || typeof auth !== 'object') {
+    throw new Error('Admin login required');
   }
-  return email;
+  var user = auth.username;
+  var pass = auth.password;
+  if (!user || !pass) {
+    throw new Error('Admin login required');
+  }
+
+  var props = PropertiesService.getScriptProperties();
+  var storedUser = props.getProperty('ADMIN_USERNAME') || '';
+  var storedHash = props.getProperty('ADMIN_PASS_HASH') || '';
+  var storedSalt = props.getProperty('ADMIN_PASS_SALT') || '';
+  if (!storedUser || !storedHash || !storedSalt) {
+    throw new Error('Admin not configured — run setupAdminPassword_dev from the Apps Script editor first');
+  }
+
+  if (String(user) !== storedUser) throw new Error('Invalid admin credentials');
+  if (hashPin_(pass, storedSalt) !== storedHash) throw new Error('Invalid admin credentials');
+
+  return storedUser;
 }

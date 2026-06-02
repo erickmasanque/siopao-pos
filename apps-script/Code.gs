@@ -100,10 +100,14 @@ function route_(method, params) {
     return jsonOk_(PUBLIC_METHODS[method](params));
   }
   if (ADMIN_METHODS[method]) {
-    // Verify caller and stash the email so handlers can stamp audit fields
-    // (voided_by, added_by) without each one repeating the auth call.
-    const adminEmail = requireAdmin_();
-    return jsonOk_(ADMIN_METHODS[method](params, { adminEmail: adminEmail }));
+    // _auth is the { username, password } envelope the frontend includes
+    // with every admin call. Strip it before forwarding so handlers see
+    // only their domain params. adminEmail (the audit-stamp identifier)
+    // is the username on success.
+    var auth = (params && params._auth) || null;
+    if (params && '_auth' in params) delete params._auth;
+    var adminId = requireAdmin_(auth);
+    return jsonOk_(ADMIN_METHODS[method](params, { adminEmail: adminId }));
   }
   return jsonErr_('Unknown method: ' + method, 'NOT_FOUND');
 }

@@ -59,6 +59,11 @@
     .auth-gate p  { margin: 8px 0; }
     .auth-gate .email { font-weight: 600; }
     .auth-gate .hint  { color: var(--muted); font-size: 13px; margin-top: 16px; }
+    #login-form { display: flex; flex-direction: column; gap: 12px; margin: 16px 0 4px; text-align: left; }
+    #login-form .row { display: flex; flex-direction: column; gap: 4px; }
+    #login-form .row label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    #login-form button { width: 100%; padding: 12px; }
+    .login-err { margin: 0; height: 18px; color: var(--danger); font-size: 13px; text-align: left; }
 
     /* ---------- Topbar + nav ---------- */
     .topbar {
@@ -271,14 +276,29 @@
 
   <div id="auth-gate" class="auth-gate" hidden>
     <h1>Siopao POS — Admin</h1>
-    <p id="auth-msg">Not authorized.</p>
-    <p class="hint">Open this page in a browser tab signed in to the Google account that owns this Apps Script project, and ensure that email is listed in <code>ADMIN_EMAILS</code> under Script Properties.</p>
+    <p id="auth-msg" class="hint">&nbsp;</p>
+    <form id="login-form" autocomplete="on">
+      <div class="row">
+        <label for="lg-user">Username</label>
+        <input type="text" id="lg-user" autocomplete="username" required>
+      </div>
+      <div class="row">
+        <label for="lg-pass">Password</label>
+        <input type="password" id="lg-pass" autocomplete="current-password" required>
+      </div>
+      <p id="login-err" class="login-err">&nbsp;</p>
+      <button class="btn" id="login-btn" type="submit">Log in</button>
+    </form>
+    <p class="hint">If you haven't set credentials yet, run <code>setupAdminPassword_dev</code> once in the Apps Script editor.</p>
   </div>
 
   <div id="app" hidden>
     <header class="topbar">
       <div class="brand">Siopao POS — Admin</div>
-      <div class="who"><span id="who-email"></span></div>
+      <div class="who">
+        <span id="who-email"></span>
+        <button id="logout-btn" class="btn small secondary" style="margin-left:12px;">Log out</button>
+      </div>
     </header>
 
     <nav class="tabs">
@@ -298,9 +318,37 @@
   <script>
     'use strict';
 
+    // ---------- Admin credentials ----------
+    var AUTH_KEY = 'siopao.admin.auth';
+    var adminAuth = loadAuth(); // { username, password } | null
+
+    function loadAuth() {
+      try {
+        var raw = localStorage.getItem(AUTH_KEY);
+        if (raw) {
+          var v = JSON.parse(raw);
+          if (v && v.username && v.password) return v;
+        }
+      } catch (e) {}
+      return null;
+    }
+    function saveAuth(a) { localStorage.setItem(AUTH_KEY, JSON.stringify(a)); }
+    function clearAuth() { localStorage.removeItem(AUTH_KEY); adminAuth = null; }
+
     // ---------- google.script.run promise wrapper ----------
+    // Auto-injects adminAuth into the first param object so view code
+    // doesn't have to thread credentials through every call. Pass _auth
+    // explicitly only for the login call itself (where adminAuth is null
+    // and we're submitting the user-typed form values).
     function srv(name) {
       var args = Array.prototype.slice.call(arguments, 1);
+      if (adminAuth) {
+        if (args.length === 0) {
+          args.push({ _auth: adminAuth });
+        } else if (args[0] && typeof args[0] === 'object' && !args[0]._auth) {
+          args[0]._auth = adminAuth;
+        }
+      }
       return new Promise(function (resolve, reject) {
         var runner = google.script.run
           .withSuccessHandler(resolve)
@@ -1376,42 +1424,89 @@
 
     // ---------- Boot ----------
     async function init() {
+      // First decide: do we have stored creds? If so, verify them.
+      // If not (or invalid), show the login form.
       try {
         var who = await srv('ui_whoami');
+        $('#loading').hidden = true;
 
-        if (!who.allowed) {
-          $('#loading').hidden = true;
-          $('#auth-gate').hidden = false;
-          if (!who.email) {
-            $('#auth-msg').innerHTML =
-              'No Google identity detected. Make sure you are signed in to ' +
-              'Google in this browser before opening this page.';
-          } else if (!who.allowlist_configured) {
-            $('#auth-msg').innerHTML =
-              'You are signed in as <span class="email">' + esc(who.email) + '</span>, ' +
-              'but <code>ADMIN_EMAILS</code> is empty in Script Properties.';
-          } else {
-            $('#auth-msg').innerHTML =
-              'Signed in as <span class="email">' + esc(who.email) + '</span> ' +
-              '— not in the admin allowlist.';
-          }
+        if (!who.configured) {
+          showLoginGate(
+            'Admin credentials are not configured yet. Run ' +
+            '<code>setupAdminPassword_dev</code> from the Apps Script editor first.',
+            { disableForm: true }
+          );
           return;
         }
 
-        $('#who-email').textContent = who.email;
-        $('#loading').hidden = true;
-        $('#app').hidden = false;
+        if (who.ok) {
+          enterApp(who.username);
+          return;
+        }
 
-        // Wire tabs
-        document.querySelectorAll('.tabs button').forEach(function (b) {
-          b.addEventListener('click', function () { showView(b.dataset.view); });
-        });
-
-        // Land on dashboard by default
-        showView('dashboard');
+        // We have stored creds but they were rejected → wipe them and show login.
+        if (adminAuth) clearAuth();
+        showLoginGate('');
       } catch (err) {
         $('#loading').textContent = 'Failed to load: ' + (err.message || err);
       }
+    }
+
+    function showLoginGate(msgHtml, opts) {
+      opts = opts || {};
+      $('#auth-gate').hidden = false;
+      $('#auth-msg').innerHTML = msgHtml || '&nbsp;';
+      if (opts.disableForm) {
+        $('#lg-user').disabled = true;
+        $('#lg-pass').disabled = true;
+        $('#login-btn').disabled = true;
+      }
+      // Wire form submit (idempotent — addEventListener with no de-dupe
+      // is fine because init runs at most once per page load).
+      $('#login-form').addEventListener('submit', onLoginSubmit);
+    }
+
+    async function onLoginSubmit(e) {
+      e.preventDefault();
+      var user = $('#lg-user').value.trim();
+      var pass = $('#lg-pass').value;
+      if (!user || !pass) return;
+      var btn = $('#login-btn');
+      btn.disabled = true;
+      $('#login-err').textContent = '';
+      try {
+        // Explicit _auth here because adminAuth is still null pre-login.
+        var resp = await srv('ui_login', { _auth: { username: user, password: pass } });
+        adminAuth = { username: user, password: pass };
+        saveAuth(adminAuth);
+        $('#auth-gate').hidden = true;
+        enterApp(resp.username);
+      } catch (err) {
+        $('#login-err').textContent = err.message || 'Login failed';
+        btn.disabled = false;
+      }
+    }
+
+    function enterApp(username) {
+      $('#who-email').textContent = username;
+      $('#app').hidden = false;
+      document.querySelectorAll('.tabs button').forEach(function (b) {
+        b.addEventListener('click', function () { showView(b.dataset.view); });
+      });
+      $('#logout-btn').addEventListener('click', logout);
+      showView('dashboard');
+    }
+
+    function logout() {
+      clearAuth();
+      // Wipe in-memory caches that could leak between sessions.
+      state.menu = null;
+      state.sellers = null;
+      state.stores = null;
+      $('#app').hidden = true;
+      $('#content').innerHTML = '';
+      $('#lg-pass').value = '';
+      showLoginGate('Logged out.');
     }
 
     init();

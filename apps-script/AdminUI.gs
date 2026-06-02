@@ -4,45 +4,62 @@
  * google.script.run wrappers for the admin HtmlService page.
  *
  * The admin UI calls these instead of the JSON /exec POST endpoints.
- * Why: google.script.run is internal RPC — no HTTP, no CORS, automatic
- * caller identity via Session.getActiveUser(). It's also faster (no
- * /exec routing overhead) and the auth gate doesn't need to hash a
- * password or pass tokens.
+ * google.script.run is internal RPC — no HTTP, no CORS, faster than
+ * the public POST endpoint, and the auth gate doesn't need to negotiate
+ * cross-origin Google identity.
  *
- * Each wrapper:
- *   - calls requireAdmin_() (throws if caller isn't in ADMIN_EMAILS)
- *   - forwards to the matching Admin.gs / Inventory.gs / etc. handler
- *   - passes ctx.adminEmail so audit fields (added_by, voided_by) stamp
+ * Auth model: every admin-only function expects a params object with an
+ * `_auth` field of shape { username, password }. _adminCall_ unpacks it,
+ * runs requireAdmin_, and forwards the remaining params to the handler.
+ * adminEmail (the audit-stamp value) is the admin username.
  *
- * Returns are passed back through google.script.run.withSuccessHandler
- * verbatim. Throws surface to .withFailureHandler with err.message.
+ * Returns pass through google.script.run.withSuccessHandler verbatim.
+ * Throws surface to .withFailureHandler with err.message.
  */
 
 /**
- * Tells the page who's logged in and whether they're allowed. Used by
- * the page's auth gate before showing any UI. NOT gated by requireAdmin_
- * (that would always 401 and the page could never render its rejection
- * message).
+ * Tells the page whether the supplied credentials are valid. Used by the
+ * admin frontend on boot to verify stored creds before rendering the app.
+ * Does NOT throw — returns the auth state as data.
+ *
+ * Also reports whether ADMIN_USERNAME/ADMIN_PASS_HASH are configured at
+ * all so the login form can surface a "not configured" message instead
+ * of "wrong password" when the script properties are blank.
  */
-function ui_whoami() {
-  var email = (Session.getActiveUser().getEmail() || '').toLowerCase();
-  var raw   = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || '';
-  var allow = raw.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
-  return {
-    email: email,
-    allowed: !!email && allow.indexOf(email) >= 0,
-    allowlist_configured: allow.length > 0
-  };
+function ui_whoami(params) {
+  var props = PropertiesService.getScriptProperties();
+  var configured = !!(props.getProperty('ADMIN_USERNAME')
+                      && props.getProperty('ADMIN_PASS_HASH')
+                      && props.getProperty('ADMIN_PASS_SALT'));
+  var auth = (params && params._auth) || null;
+  if (!auth) return { configured: configured, ok: false, error: null };
+  try {
+    var username = requireAdmin_(auth);
+    return { configured: configured, ok: true, username: username };
+  } catch (e) {
+    return { configured: configured, ok: false, error: e.message };
+  }
+}
+
+/**
+ * Explicit login call. Throws on failure (so the page's withFailureHandler
+ * fires with the reason). Returns { username } on success — callers can
+ * use this to confirm the credentials before persisting them.
+ */
+function ui_login(params) {
+  var auth = (params && params._auth) || null;
+  var username = requireAdmin_(auth);
+  return { ok: true, username: username };
 }
 
 // ---------- Dashboard / lookups ----------
-function ui_getDashboard()        { return _adminCall_(getDashboard); }
-function ui_getMenu()             { return _adminCall_(getMenu); }            // catalog for filters/dropdowns
-function ui_getInventory(params)  { return _adminCall_(getInventory, params); }
-function ui_getInventoryDetail(params) { return _adminCall_(getInventoryDetail, params); }
-function ui_listSellers()         { _adminGate_(); return _readSellersWithStats_(); }
-function ui_listStores()          { _adminGate_(); return _readStores_(); }
-function ui_getCatalog()          { _adminGate_(); return _readCatalog_(); }
+function ui_getDashboard(params)        { return _adminCall_(getDashboard, params); }
+function ui_getMenu(params)             { return _adminCall_(getMenu, params); }
+function ui_getInventory(params)        { return _adminCall_(getInventory, params); }
+function ui_getInventoryDetail(params)  { return _adminCall_(getInventoryDetail, params); }
+function ui_listSellers(params)         { _adminGate_(params); return _readSellersWithStats_(); }
+function ui_listStores(params)          { _adminGate_(params); return _readStores_(); }
+function ui_getCatalog(params)          { _adminGate_(params); return _readCatalog_(); }
 
 // ---------- Mutations ----------
 function ui_restock(params)          { return _adminCall_(restock, params); }
@@ -64,12 +81,24 @@ function ui_getShiftHistory(params) { return _adminCall_(getShiftHistory, params
 // ---------- Internals ----------
 
 function _adminCall_(fn, params) {
-  var email = requireAdmin_();
-  return fn(params || {}, { adminEmail: email });
+  var auth = (params && params._auth) || null;
+  var clean = _stripAuth_(params);
+  var username = requireAdmin_(auth);
+  return fn(clean, { adminEmail: username });
 }
 
-function _adminGate_() {
-  requireAdmin_();
+function _adminGate_(params) {
+  var auth = (params && params._auth) || null;
+  requireAdmin_(auth);
+}
+
+function _stripAuth_(params) {
+  if (!params || typeof params !== 'object') return {};
+  var out = {};
+  Object.keys(params).forEach(function (k) {
+    if (k !== '_auth') out[k] = params[k];
+  });
+  return out;
 }
 
 /** Sellers list with sensitive columns (pin_hash, pin_salt) stripped. */
