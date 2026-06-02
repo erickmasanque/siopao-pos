@@ -313,7 +313,7 @@
     var VIEWS = {
       dashboard: { title: 'Dashboard',     render: renderDashboard },
       inventory: { title: 'Inventory',     render: renderInventory },
-      menu:      { title: 'Menu & Prices', render: renderStub },
+      menu:      { title: 'Menu & Prices', render: renderMenu },
       sellers:   { title: 'Sellers',       render: renderStub },
       sales:     { title: 'Sales Log',     render: renderStub },
       shifts:    { title: 'Shift History', render: renderStub }
@@ -642,6 +642,220 @@
         }
       });
       setTimeout(function () { modal.querySelector('#restock-qty').focus(); modal.querySelector('#restock-qty').select(); }, 0);
+    }
+
+    // ---------- Menu & Prices ----------
+    async function renderMenu() {
+      $('#content').innerHTML =
+        '<div class="toolbar">' +
+        '  <h2 class="section-title">Menu &amp; Prices</h2>' +
+        '  <div class="controls">' +
+        '    <button class="btn small secondary" id="menu-refresh">Refresh</button>' +
+        '  </div>' +
+        '</div>' +
+        '<div id="items-section"><div class="empty">Loading items…</div></div>' +
+        '<div id="bundles-section" style="margin-top:24px;"><div class="empty">Loading bundles…</div></div>';
+
+      $('#menu-refresh').addEventListener('click', loadMenu);
+      await loadMenu();
+    }
+
+    async function loadMenu() {
+      try {
+        state.menu = await srv('ui_getMenu');
+      } catch (err) {
+        $('#items-section').innerHTML = '<div class="empty">Failed: ' + esc(err.message) + '</div>';
+        return;
+      }
+      // ui_getMenu only returns active rows — we want all rows here. Re-fetch via
+      // a workaround: pull inactive items by reading the sheet directly is not
+      // exposed. For v1, only active rows are editable from this view; inactive
+      // items must be reactivated from the sheet directly. Mark this limitation.
+      if (state.view !== 'menu') return;
+      renderItemsSection();
+      renderBundlesSection();
+    }
+
+    function renderItemsSection() {
+      var items = (state.menu && state.menu.items) || [];
+      var html =
+        '<div class="toolbar" style="margin-bottom:8px;">' +
+        '  <h3 style="margin:0;">Items</h3>' +
+        '  <button class="btn small" data-action="add-item">+ Add item</button>' +
+        '</div>';
+      if (items.length === 0) {
+        html += '<div class="empty">No active items.</div>';
+      } else {
+        html += '<table>' +
+          '<thead><tr><th>ID</th><th>Name</th><th>Price</th><th>Category</th><th></th></tr></thead>' +
+          '<tbody>' +
+            items.map(function (i) {
+              return (
+                '<tr>' +
+                '<td><span class="sub">' + esc(i.item_id) + '</span></td>' +
+                '<td>' + esc(i.name) + '</td>' +
+                '<td>' + fmtPeso(i.retail_price) + '</td>' +
+                '<td>' + esc(i.category || '—') + '</td>' +
+                '<td><button class="btn small secondary" data-action="edit-item" data-item-id="' + esc(i.item_id) + '">Edit</button></td>' +
+                '</tr>'
+              );
+            }).join('') +
+          '</tbody></table>';
+      }
+      $('#items-section').innerHTML = html;
+      document.querySelector('[data-action="add-item"]').addEventListener('click', function () { openItemModal(null); });
+      document.querySelectorAll('[data-action="edit-item"]').forEach(function (b) {
+        b.addEventListener('click', function () { openItemModal(b.dataset.itemId); });
+      });
+    }
+
+    function renderBundlesSection() {
+      var bundles = (state.menu && state.menu.bundles) || [];
+      var html =
+        '<div class="toolbar" style="margin-bottom:8px;">' +
+        '  <h3 style="margin:0;">Bundles</h3>' +
+        '  <button class="btn small" data-action="add-bundle">+ Add bundle</button>' +
+        '</div>';
+      if (bundles.length === 0) {
+        html += '<div class="empty">No active bundles.</div>';
+      } else {
+        html += '<table>' +
+          '<thead><tr><th>ID</th><th>Name</th><th>Price</th><th>Siopao qty</th><th>Gulaman qty</th><th></th></tr></thead>' +
+          '<tbody>' +
+            bundles.map(function (b) {
+              return (
+                '<tr>' +
+                '<td><span class="sub">' + esc(b.bundle_id) + '</span></td>' +
+                '<td>' + esc(b.name) + '</td>' +
+                '<td>' + fmtPeso(b.price) + '</td>' +
+                '<td>' + b.includes_siopao_qty + '</td>' +
+                '<td>' + b.includes_gulaman_qty + '</td>' +
+                '<td><button class="btn small secondary" data-action="edit-bundle" data-bundle-id="' + esc(b.bundle_id) + '">Edit</button></td>' +
+                '</tr>'
+              );
+            }).join('') +
+          '</tbody></table>';
+      }
+      $('#bundles-section').innerHTML = html;
+      document.querySelector('[data-action="add-bundle"]').addEventListener('click', function () { openBundleModal(null); });
+      document.querySelectorAll('[data-action="edit-bundle"]').forEach(function (b) {
+        b.addEventListener('click', function () { openBundleModal(b.dataset.bundleId); });
+      });
+    }
+
+    function openItemModal(item_id) {
+      var existing = item_id ? (state.menu.items || []).filter(function (i) { return i.item_id === item_id; })[0] : null;
+      var isNew = !existing;
+      var modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML =
+        '<div class="modal-card">' +
+        '  <h3>' + (isNew ? 'Add item' : 'Edit item') + '</h3>' +
+        '  <div class="row"><label>ID (slug)</label>' +
+          (isNew
+            ? '<input type="text" id="m-item-id" placeholder="e.g. asado" pattern="[a-z0-9_]+">'
+            : '<div class="sub">' + esc(item_id) + ' <span class="sub">(immutable)</span></div>') +
+        '  </div>' +
+        '  <div class="row"><label>Name</label><input type="text" id="m-name" value="' + esc(existing ? existing.name : '') + '"></div>' +
+        '  <div class="row"><label>Retail price (₱)</label><input type="number" id="m-price" min="0" step="0.01" value="' + (existing ? existing.retail_price : '') + '"></div>' +
+        '  <div class="row"><label>Category</label><input type="text" id="m-cat" value="' + esc(existing ? existing.category : '') + '" placeholder="e.g. siopao, drink"></div>' +
+        '  ' + (isNew ? '' : '<div class="row"><label>Active</label><label><input type="checkbox" id="m-active" checked> visible to sellers</label></div>') +
+        '  <div class="modal-actions">' +
+        '    <button class="btn secondary" data-modal-cancel>Cancel</button>' +
+        '    <button class="btn" data-modal-ok>' + (isNew ? 'Add' : 'Save') + '</button>' +
+        '  </div>' +
+        '</div>';
+      document.body.appendChild(modal);
+      modal.querySelector('[data-modal-cancel]').addEventListener('click', function () { modal.remove(); });
+      modal.querySelector('[data-modal-ok]').addEventListener('click', async function () {
+        var btn = modal.querySelector('[data-modal-ok]');
+        btn.disabled = true;
+        try {
+          if (isNew) {
+            await srv('ui_addItem', {
+              item_id:     modal.querySelector('#m-item-id').value.trim(),
+              name:        modal.querySelector('#m-name').value.trim(),
+              retail_price: Number(modal.querySelector('#m-price').value),
+              category:    modal.querySelector('#m-cat').value.trim(),
+              active:      true
+            });
+            toast('Item added', 'ok');
+          } else {
+            await srv('ui_updateItem', { item_id: item_id, fields: {
+              name:         modal.querySelector('#m-name').value.trim(),
+              retail_price: Number(modal.querySelector('#m-price').value),
+              category:     modal.querySelector('#m-cat').value.trim(),
+              active:       modal.querySelector('#m-active').checked
+            }});
+            toast('Item updated', 'ok');
+          }
+          modal.remove();
+          state.menu = null;
+          await loadMenu();
+        } catch (err) {
+          toast(err.message, 'err');
+          btn.disabled = false;
+        }
+      });
+    }
+
+    function openBundleModal(bundle_id) {
+      var existing = bundle_id ? (state.menu.bundles || []).filter(function (b) { return b.bundle_id === bundle_id; })[0] : null;
+      var isNew = !existing;
+      var modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML =
+        '<div class="modal-card">' +
+        '  <h3>' + (isNew ? 'Add bundle' : 'Edit bundle') + '</h3>' +
+        '  <div class="row"><label>ID (slug)</label>' +
+          (isNew
+            ? '<input type="text" id="m-bundle-id" placeholder="e.g. combo" pattern="[a-z0-9_]+">'
+            : '<div class="sub">' + esc(bundle_id) + ' <span class="sub">(immutable)</span></div>') +
+        '  </div>' +
+        '  <div class="row"><label>Name</label><input type="text" id="m-name" value="' + esc(existing ? existing.name : '') + '"></div>' +
+        '  <div class="row"><label>Price (₱)</label><input type="number" id="m-price" min="0" step="0.01" value="' + (existing ? existing.price : '') + '"></div>' +
+        '  <div class="row"><label>Siopao quantity included</label><input type="number" id="m-siopao" min="0" step="1" value="' + (existing ? existing.includes_siopao_qty : 0) + '"></div>' +
+        '  <div class="row"><label>Gulaman quantity included</label><input type="number" id="m-gulaman" min="0" step="1" value="' + (existing ? existing.includes_gulaman_qty : 0) + '"></div>' +
+        '  ' + (isNew ? '' : '<div class="row"><label>Active</label><label><input type="checkbox" id="m-active" checked> visible to sellers</label></div>') +
+        '  <div class="modal-actions">' +
+        '    <button class="btn secondary" data-modal-cancel>Cancel</button>' +
+        '    <button class="btn" data-modal-ok>' + (isNew ? 'Add' : 'Save') + '</button>' +
+        '  </div>' +
+        '</div>';
+      document.body.appendChild(modal);
+      modal.querySelector('[data-modal-cancel]').addEventListener('click', function () { modal.remove(); });
+      modal.querySelector('[data-modal-ok]').addEventListener('click', async function () {
+        var btn = modal.querySelector('[data-modal-ok]');
+        btn.disabled = true;
+        try {
+          if (isNew) {
+            await srv('ui_addBundle', {
+              bundle_id:            modal.querySelector('#m-bundle-id').value.trim(),
+              name:                 modal.querySelector('#m-name').value.trim(),
+              price:                Number(modal.querySelector('#m-price').value),
+              includes_siopao_qty:  Number(modal.querySelector('#m-siopao').value),
+              includes_gulaman_qty: Number(modal.querySelector('#m-gulaman').value),
+              active:               true
+            });
+            toast('Bundle added', 'ok');
+          } else {
+            await srv('ui_updateBundle', { bundle_id: bundle_id, fields: {
+              name:                 modal.querySelector('#m-name').value.trim(),
+              price:                Number(modal.querySelector('#m-price').value),
+              includes_siopao_qty:  Number(modal.querySelector('#m-siopao').value),
+              includes_gulaman_qty: Number(modal.querySelector('#m-gulaman').value),
+              active:               modal.querySelector('#m-active').checked
+            }});
+            toast('Bundle updated', 'ok');
+          }
+          modal.remove();
+          state.menu = null;
+          await loadMenu();
+        } catch (err) {
+          toast(err.message, 'err');
+          btn.disabled = false;
+        }
+      });
     }
 
     // ---------- Boot ----------

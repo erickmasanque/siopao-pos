@@ -80,6 +80,8 @@ var ADMIN_METHODS = {
   getDashboard:        getDashboard,
   getInventoryDetail:  getInventoryDetail,
   restock:             restock,
+  addItem:             addItem,
+  addBundle:           addBundle,
   updateItem:          updateItem,
   updateBundle:        updateBundle,
   addSeller:           addSeller,

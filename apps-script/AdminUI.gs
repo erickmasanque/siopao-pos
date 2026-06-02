@@ -45,6 +45,8 @@ function ui_listStores()          { _adminGate_(); return _readStores_(); }
 
 // ---------- Mutations ----------
 function ui_restock(params)          { return _adminCall_(restock, params); }
+function ui_addItem(params)          { return _adminCall_(addItem, params); }
+function ui_addBundle(params)        { return _adminCall_(addBundle, params); }
 function ui_updateItem(params)       { return _adminCall_(updateItem, params); }
 function ui_updateBundle(params)     { return _adminCall_(updateBundle, params); }
 function ui_addSeller(params)        { return _adminCall_(addSeller, params); }

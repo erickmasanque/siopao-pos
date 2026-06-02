@@ -185,6 +185,67 @@ function restock(params, ctx) {
 
 // ---------- Menu (items + bundles) ----------
 
+function addItem(params) {
+  return withLock_(function () {
+    const item_id      = params && params.item_id;
+    const name         = (params && params.name || '').trim();
+    const retail_price = params && params.retail_price;
+    const category     = (params && params.category || '').trim();
+    const active       = params && params.active;
+
+    if (!item_id || !name) throw new Error('item_id and name required');
+    if (retail_price == null || retail_price === '') throw new Error('retail_price required');
+    if (!/^[a-z0-9_]+$/.test(item_id)) throw new Error('item_id must be lowercase a-z, 0-9, or underscore only');
+    if (getRowByKey_(TABS.ITEMS, 'item_id', item_id)) throw new Error('item_id already exists');
+
+    appendRow_(TABS.ITEMS, {
+      item_id: item_id,
+      name: name,
+      retail_price: roundCentavo_(Number(retail_price)),
+      category: category,
+      active: active !== false
+    });
+
+    // Seed an Inventory row at stock=0 for every active store so this item
+    // shows up in the seller tile grid as "Out" immediately rather than
+    // silently missing.
+    const stores = readTable_(TABS.STORES).filter(function (s) { return s.active; });
+    const now = new Date();
+    appendRows_(TABS.INVENTORY, stores.map(function (s) {
+      return { store_id: s.store_id, item_id: item_id, stock: 0, updated_at: now };
+    }));
+
+    return { ok: true, item_id: item_id };
+  });
+}
+
+function addBundle(params) {
+  return withLock_(function () {
+    const bundle_id            = params && params.bundle_id;
+    const name                 = (params && params.name || '').trim();
+    const price                = params && params.price;
+    const includes_siopao_qty  = Math.max(0, Number(params && params.includes_siopao_qty) || 0);
+    const includes_gulaman_qty = Math.max(0, Number(params && params.includes_gulaman_qty) || 0);
+    const active               = params && params.active;
+
+    if (!bundle_id || !name) throw new Error('bundle_id and name required');
+    if (price == null || price === '') throw new Error('price required');
+    if (!/^[a-z0-9_]+$/.test(bundle_id)) throw new Error('bundle_id must be lowercase a-z, 0-9, or underscore only');
+    if (getRowByKey_(TABS.BUNDLES, 'bundle_id', bundle_id)) throw new Error('bundle_id already exists');
+
+    appendRow_(TABS.BUNDLES, {
+      bundle_id: bundle_id,
+      name: name,
+      price: roundCentavo_(Number(price)),
+      includes_siopao_qty: includes_siopao_qty,
+      includes_gulaman_qty: includes_gulaman_qty,
+      active: active !== false
+    });
+
+    return { ok: true, bundle_id: bundle_id };
+  });
+}
+
 function updateItem(params) {
   return withLock_(function () {
     const item_id = params && params.item_id;
